@@ -205,6 +205,14 @@ class AdjustmentUiContractTests(unittest.TestCase):
         self.assertIn("/api/video-inputs", page)
         self.assertIn("/api/video/jobs", page)
         self.assertIn("local-video-upload-v1", page)
+        self.assertIn("clean-ui-labels-v1", page)
+        for corrupted_text in (
+            "\u00c2",
+            "\u00e2\u20ac\u00a6",
+            "\u00c3",
+            "\u00ef\u00bf\u00bd",
+        ):
+            self.assertNotIn(corrupted_text, page)
 
     def test_backend_advertises_the_ui_compatibility_feature(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -243,6 +251,7 @@ class AdjustmentUiContractTests(unittest.TestCase):
         self.assertIn("resilient-video-polling-v1", response["features"])
         self.assertIn("youtube-source-cache-v1", response["features"])
         self.assertIn("local-video-upload-v1", response["features"])
+        self.assertIn("clean-ui-labels-v1", response["features"])
         self.assertFalse(cache_status["active"])
         self.assertFalse(clear_status["cleared"])
         self.assertIn("ffmpeg", local_status["checks"])

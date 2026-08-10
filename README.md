@@ -13,6 +13,8 @@ The Python package and on-screen application currently use the historical name *
 
 This is a working Windows proof of concept with a production-oriented long-video path. It has been validated on CUDA-capable NVIDIA hardware; host-identifying specifications are intentionally not stored in this repository.
 
+Current application version: **0.4.1**. This patch corrects corrupted punctuation in the local-video interface and adds a launcher compatibility marker so an older running page is replaced automatically.
+
 Implemented:
 
 - local VoiceBox health checks and cloned-profile discovery;

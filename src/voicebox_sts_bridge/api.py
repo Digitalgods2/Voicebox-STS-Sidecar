@@ -114,6 +114,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "resilient-video-polling-v1",
                 "youtube-source-cache-v1",
                 "local-video-upload-v1",
+                "clean-ui-labels-v1",
             ],
         }
 

@@ -246,11 +246,11 @@
           <p class="eyebrow">Local video production</p>
           <h2 id="local-video-heading">7. Import a video from this PC</h2>
           <p class="muted">Choose an authorized local video. It uses the same lossless extraction, overlapping STS chunks, exact-timing reconstruction, pitch/tone controls, stream-copy video, and FLAC remux used for YouTube.</p>
-          <p id="local-video-engine" class="status" role="status" aria-live="polite">Checking local video toolsâ€¦</p>
+          <p id="local-video-engine" class="status" role="status" aria-live="polite">Checking local video tools...</p>
           <label for="local-video-input" class="sr-only">Authorized local video file</label>
           <input id="local-video-input" type="file" accept="video/*,.avi,.m2ts,.m4v,.mkv,.mov,.mp4,.mpeg,.mpg,.ts,.webm,.wmv" hidden>
           <div class="file-picker">
-            <button id="choose-local-video" type="button">Choose video from this PCâ€¦</button>
+            <button id="choose-local-video" type="button">Choose video from this PC...</button>
             <span id="local-video-name" class="file-name">No file selected</span>
           </div>
           <progress id="local-video-upload-progress" max="100" value="0" hidden></progress>
@@ -389,7 +389,11 @@
     let activeVideoJob = null;
     let profileRecords = new Map();
     const adjustmentStorageKey = 'voicebox-sts-profile-adjustments-v1';
-    const requiredBackendFeatures = ['youtube-source-cache-v1', 'local-video-upload-v1'];
+    const requiredBackendFeatures = [
+      'youtube-source-cache-v1',
+      'local-video-upload-v1',
+      'clean-ui-labels-v1'
+    ];
 
     async function json(url, options) {
       const response = await fetch(url, options);
@@ -860,7 +864,7 @@
         setStatus(
           localVideoEngine,
           state.ready
-            ? 'Ready Â· copied video + lossless FLAC audio'
+            ? 'Ready - copied video + lossless FLAC audio'
             : 'Local video pipeline installation is incomplete',
           state.ready ? 'ok' : 'bad'
         );
@@ -959,7 +963,7 @@
 
       uploadedVideo = null;
       chooseLocalVideoButton.disabled = true;
-      localVideoName.textContent = `${file.name} Â· ${formatBytes(file.size)}`;
+      localVideoName.textContent = `${file.name} - ${formatBytes(file.size)}`;
       localVideoUploadProgress.hidden = false;
       localVideoUploadProgress.value = 0;
       localVideoDetails.hidden = true;
@@ -972,8 +976,8 @@
           setStatus(
             localVideoUploadStatus,
             percent === null
-              ? `Importing ${file.name}â€¦`
-              : `Importing ${file.name}â€¦ ${percent}%`,
+              ? `Importing ${file.name}...`
+              : `Importing ${file.name}... ${percent}%`,
           );
         });
         if (!body.video_input_id) {
@@ -1078,7 +1082,7 @@
       localVideoConvertButton.disabled = true;
       localVideoProgress.hidden = false;
       localVideoProgress.value = 0;
-      setStatus(localVideoSummary, 'Creating local video conversion jobâ€¦');
+      setStatus(localVideoSummary, 'Creating local video conversion job...');
       try {
         const adjustments = adjustmentValues();
         const job = await json('/api/video/jobs', {
