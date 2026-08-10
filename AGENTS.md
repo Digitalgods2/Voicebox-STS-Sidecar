@@ -16,17 +16,14 @@ This is intended primarily for long YouTube audio/video conversions. There must 
 - Use only voice profiles and source media the user owns or has permission to use.
 - Never download a multi-gigabyte model without first telling the user its approximate size and receiving approval.
 
-## Local environment
+## Runtime assumptions
 
-- OS: Windows
-- GPU: CUDA-capable NVIDIA GPU
-- VoiceBox application: `%ProgramFiles%\Voicebox\voicebox.exe`
-- VoiceBox local API: `http://127.0.0.1:17493`
-- VoiceBox data: `%USERPROFILE%\AppData\Roaming\sh.voicebox.app`
-- VoiceBox backend: PyTorch/CUDA
-- VoiceBox was healthy when last checked.
-- Installed VoiceBox models included Qwen TTS 0.6B/1.7B, Qwen CustomVoice 0.6B/1.7B, LuxTTS, Chatterbox Multilingual, Whisper variants, and Qwen LLM variants.
-- Applio is a separate project at `%USERPROFILE%\Desktop\Applio`; do not place this add-on there.
+- Target operating system: Windows.
+- A CUDA-capable NVIDIA GPU is recommended; actual host hardware is intentionally not recorded in the repository.
+- The launcher derives the default VoiceBox executable path from `%ProgramFiles%` and permits local configuration.
+- VoiceBox is accessed only through its loopback API at `http://127.0.0.1:17493`; host-specific VoiceBox data paths are not tracked.
+- Available VoiceBox models and profiles are queried dynamically and are not recorded in source control.
+- Keep this add-on in its own repository rather than placing it inside VoiceBox or another voice project.
 
 ## VoiceBox architecture already researched
 
@@ -76,7 +73,7 @@ For preset or designed VoiceBox profiles that do not contain reference samples, 
 - Supports offline, singing, and real-time variants.
 - Strong conceptual match for VoiceBox reference-WAV profiles.
 - GPL-3.0 license, while VoiceBox is MIT. Keep the initial experiment private/local and treat bundling or distribution as a deliberate licensing decision.
-- The reference CUDA hardware should be evaluated first with a short offline conversion. Real-time performance is not guaranteed.
+- Target hardware should be evaluated first with a short offline conversion. Real-time performance is not guaranteed.
 
 ### OpenVoice V2
 
@@ -102,7 +99,7 @@ Build a narrow offline proof of concept before any polished UI:
 5. Ask permission before downloading model weights.
 6. Convert a user-authorized 30-60 second test clip.
 7. Verify the output file is valid, audible, durationally sensible, and uses the selected target voice.
-8. Record conversion speed, peak VRAM, and quality observations on the reference CUDA hardware.
+8. Record conversion speed, peak VRAM, and quality observations locally without committing host-identifying measurements.
 
 Only after the proof of concept succeeds should the project add long-file chunking, job recovery, video remuxing, and batch processing.
 
@@ -122,7 +119,7 @@ Only after the proof of concept succeeds should the project add long-file chunki
 The initial proof of concept and its long-video extension are implemented and validated locally as of 2026-08-10.
 
 - OpenVoice V2 is installed in an isolated Python 3.10/CUDA environment from pinned source and a hash-verified converter checkpoint.
-- A real 16.56-second source was converted successfully on the reference CUDA hardware, fully decoded, and measured for runtime and peak VRAM.
+- A representative source was converted successfully on local CUDA hardware and fully decoded; host-specific measurements remain local.
 - The FastAPI service can discover VoiceBox profiles, cache reference WAV files, accept browser uploads, convert local audio, and serve source/reference/output media with byte-range support.
 - The web UI automatically selects a sole reference sample, provides native file pickers, and includes persistent source, reference, output-audio, and output-video players.
 - The UI provides per-profile pitch correction and brightness/tone-depth controls. Pitch uses high-quality, formant-preserving Rubber Band processing; tone uses a high shelf; both paths enforce the original converted frame count before publishing output.
@@ -131,4 +128,4 @@ The initial proof of concept and its long-video extension are implemented and va
 - Durable manifests and progress files survive page refreshes. Automatic continuation after the bridge process itself exits remains future work.
 - Runtime environments, upstream source, model weights, reference caches, source media, and generated outputs remain ignored local data and are not part of the repository.
 
-See `README.md`, `docs/engine-audit.md`, and `docs/benchmark.md` for installation, operation, provenance, and measurements.
+See `README.md`, `docs/engine-audit.md`, and `docs/validation.md` for installation, operation, provenance, and privacy-safe validation results.

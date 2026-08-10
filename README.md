@@ -11,7 +11,7 @@ The Python package and on-screen application currently use the historical name *
 
 ## Status
 
-This is a working Windows proof of concept with a production-oriented long-video path. It has been validated on an CUDA-capable NVIDIA GPU.
+This is a working Windows proof of concept with a production-oriented long-video path. It has been validated on CUDA-capable NVIDIA hardware; host-identifying specifications are intentionally not stored in this repository.
 
 Implemented:
 
@@ -134,7 +134,7 @@ The YouTube path converts the complete soundtrack. If the source contains music,
 ### Inference hardware
 
 - NVIDIA CUDA-capable GPU recommended
-- VRAM requirements depend on workload
+- Available VRAM determines practical source and chunk sizes; benchmark a short clip before long jobs
 - Current implementation defaults to `cuda:0`
 - CPU mode exists at the engine layer but is not exposed as the normal web workflow and will be much slower
 
@@ -152,7 +152,7 @@ Review these downloads and their licenses before installing them on another mach
 
 The YouTube source cache retains at most one active downloaded video under `data/youtube_cache/current/`. A replacement may temporarily require space for both the old active file and the new staged download; the old cache is removed immediately after the new file is validated and promoted. The configured per-video safety limit is 12 GiB.
 
-## Quick start on the configured workstation
+## Quick start
 
 If the bridge and inference environments already exist:
 
@@ -455,7 +455,7 @@ Audio/chunk intermediates are intentionally retained for debugging, quality revi
 
 ```text
 config/                              # Pinned dependency and model provenance
-docs/                                # Engine audit and reference CUDA hardware benchmark notes
+docs/                                # Engine audit and privacy-safe validation notes
 src/voicebox_sts_bridge/             # Application package
 src/voicebox_sts_bridge/audio_effects.py # Exact-duration pitch and tone DSP
 src/voicebox_sts_bridge/static/      # Single-page web UI
@@ -525,28 +525,11 @@ Current suite status: **62 tests passing**.
 
 Do not expose this prototype to a LAN or the public internet without a separate authentication, CSRF, rate-limit, and threat-model review.
 
-## Benchmarks
+## Validation
 
-Reference validation environment:
+The pinned OpenVoice source and model revisions, exact-frame reconstruction, one-load chunk processing, lossless video remux, pitch/tone timing safeguards, and full-decode checks have been validated locally. Machine specifications, cloned-profile names, source filenames, job identifiers, and performance fingerprints are intentionally excluded from source control.
 
-- GPU: CUDA-capable NVIDIA GPU
-- Driver: <redacted-driver-version>
-- Python: 3.10.20 inference prefix
-- PyTorch: 2.4.1+cu124
-- OpenVoice source: `74a1d147b17a8c3092dd5430504bd83ef6c7eb23`
-- OpenVoice model revision: `f36e7edfe1684461a8343844af60babc2efbb727`
-
-| Check | Result |
-| --- | --- |
-| Model-load probe | validated |
-| Representative source conversion | validated; output fully decoded |
-| Two-chunk one-load CUDA batch | validated |
-| Three-chunk FFmpeg integration | 463,517 source frames = 463,517 reconstructed frames |
-| Video remux validation | Video codec copied, FLAC audio confirmed, full decode passed |
-
-The first full conversion preserved 99.76% of its unaligned source duration. The long-video implementation eliminates cumulative chunk drift by aligning and padding inference inputs, then enforcing the exact extracted frame count during reconstruction.
-
-Detailed measurements are in [`docs/benchmark.md`](docs/benchmark.md).
+The long-video implementation prevents cumulative chunk drift by aligning and padding inference inputs, then enforcing the exact extracted frame count during reconstruction. Privacy-safe validation details are in [`docs/validation.md`](docs/validation.md).
 
 ## Troubleshooting
 
@@ -599,7 +582,7 @@ The installed FFmpeg build must expose the `rubberband`, `highshelf`, and `alimi
 ffmpeg -hide_banner -filters | findstr /i "rubberband highshelf alimiter"
 ```
 
-A compatible FFmpeg build must include all three filters. If `rubberband` is absent, install an FFmpeg build compiled with `librubberband`; setting both controls to zero bypasses this post-processing stage.
+If `rubberband` is absent, install an FFmpeg build compiled with `librubberband`; setting both controls to zero bypasses this post-processing stage.
 
 ### A YouTube download fails
 
@@ -674,7 +657,7 @@ Video status polling tolerates short Windows file-sharing interruptions and retr
 
 - [`AGENTS.md`](AGENTS.md) — architecture decisions, constraints, and project memory
 - [`docs/engine-audit.md`](docs/engine-audit.md) — engine selection, dependency, model-size, and license audit
-- [`docs/benchmark.md`](docs/benchmark.md) — reference CUDA hardware measurements and validation results
+- [`docs/validation.md`](docs/validation.md) — privacy-safe functional validation results
 - [`config/openvoice-v2.provenance.json`](config/openvoice-v2.provenance.json) — immutable source/model provenance and checkpoint hash
 - [`config/openvoice-v2.direct-requirements.txt`](config/openvoice-v2.direct-requirements.txt) — minimal isolated-runtime packages
 

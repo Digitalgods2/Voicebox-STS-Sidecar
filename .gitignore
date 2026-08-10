@@ -8,6 +8,21 @@ __pycache__/
 .playwright-cli/
 .coverage
 output/
+.codex/
+.agents/
+AGENTS.local.md
+*.log
+
+# Never commit credentials or host-local configuration.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.*
+secrets.*
 
 # Runtime artifacts stay local.
 data/*

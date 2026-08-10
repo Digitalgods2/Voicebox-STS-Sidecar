@@ -8,7 +8,7 @@ set "BRIDGE_URL=http://127.0.0.1:8765"
 set "BRIDGE_REQUIRED_FEATURE=youtube-source-cache-v1"
 set "VOICEBOX_URL=http://127.0.0.1:17493"
 set "VOICEBOX_BASE_URL=%VOICEBOX_URL%"
-set "VOICEBOX_EXE=%ProgramFiles%\Voicebox\voicebox.exe"
+if not defined VOICEBOX_EXE set "VOICEBOX_EXE=%ProgramFiles%\Voicebox\voicebox.exe"
 set "PYTHONPATH=%CD%\src"
 
 rem Reuse only a backend that advertises the API contract required by this UI.

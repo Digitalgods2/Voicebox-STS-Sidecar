@@ -8,7 +8,7 @@ Status: OpenVoice V2 was approved, installed, and validated on 2026-08-09. The p
 
 Use **OpenVoice V2 as the sidecar's current speech-to-speech engine**. Consider another engine only if formal listening tests show that OpenVoice does not meet the desired voice-identity or performance-preservation threshold.
 
-This choice differs from the original research note because Seed-VC's upstream repository was archived on 2025-11-21. OpenVoice V2 is a much smaller, permissively licensed engine and fits comfortably within the reference CUDA hardware in the measured workloads. Objective timing and file-integrity tests have passed; target identity, intelligibility, emphasis, and emotional similarity still require subjective listening across representative source material.
+This choice differs from the original research note because Seed-VC's upstream repository was archived on 2025-11-21. OpenVoice V2 is a much smaller, permissively licensed engine and completed the measured workloads on local CUDA hardware. Objective timing and file-integrity tests have passed; target identity, intelligibility, emphasis, and emotional similarity still require subjective listening across representative source material.
 
 ## OpenVoice V2
 
@@ -36,7 +36,7 @@ This choice differs from the original research note because Seed-VC's upstream r
   - BigVGAN generator: 449 MB;
   - CAMPPlus speaker encoder: 28 MB.
 - The model files are PyTorch pickle checkpoints loaded through `torch.load`. If tested later, upstream commits and file hashes should be pinned and verified.
-- The V2 architecture is the stronger conceptual quality candidate because it is designed for voice/accent conversion and source-speaker suppression, but neither compatibility nor peak VRAM on a reference CUDA hardware is established.
+- The V2 architecture is the stronger conceptual quality candidate because it is designed for voice/accent conversion and source-speaker suppression, but compatibility and peak VRAM must be established on each target system.
 - Do not combine or distribute Seed-VC code with this bridge without a deliberate GPL compatibility decision. A private, separate local process remains the least coupled evaluation arrangement, but this is an engineering note rather than legal advice.
 
 ## Approved-install design
@@ -44,7 +44,7 @@ This choice differs from the original research note because Seed-VC's upstream r
 The approved OpenVoice V2 installation follows this design:
 
 1. Conda Python 3.10.20 is isolated under `.envs/openvoice-v2`; the base environment was not mutated.
-2. CUDA PyTorch 2.4.1+cu124 is pinned and detects the reference CUDA hardware.
+2. CUDA PyTorch 2.4.1+cu124 is pinned and detects a CUDA-capable NVIDIA GPU.
 3. OpenVoice source revision `74a1d147b17a8c3092dd5430504bd83ef6c7eb23` is kept under ignored `third_party/OpenVoice`.
 4. Only direct-converter dependencies are installed; no cloud SDK, TTS engine, Gradio, or transcription stack is present.
 5. Official model revision `f36e7edfe1684461a8343844af60babc2efbb727` is under `data/models/openvoice-v2`; its checkpoint hash matches the audited SHA-256.
