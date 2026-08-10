@@ -13,7 +13,7 @@ The Python package and on-screen application currently use the historical name *
 
 This is a working Windows proof of concept with a production-oriented long-video path. It has been validated on CUDA-capable NVIDIA hardware; host-identifying specifications are intentionally not stored in this repository.
 
-Current application version: **0.4.1**. This patch corrects corrupted punctuation in the local-video interface and adds a launcher compatibility marker so an older running page is replaced automatically.
+Current application version: **0.5.0**. The production-console interface uses a color-coded seven-stage workflow, live local-service badges, clearer technical facts, a video pipeline monitor, and a dependency board while preserving the existing accessible controls and responsive layout.
 
 Implemented:
 
@@ -36,6 +36,7 @@ Implemented:
 - unchanged video-stream remuxing with lossless FLAC audio in Matroska;
 - complete FFmpeg decode validation before a video job is marked complete;
 - responsive desktop/mobile web UI and a one-click Windows launcher.
+- vivid, stage-specific visual language with real-time VoiceBox, OpenVoice, media-tool, cache, and job-state indicators;
 
 Not implemented:
 

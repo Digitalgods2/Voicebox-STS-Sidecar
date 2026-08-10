@@ -115,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "youtube-source-cache-v1",
                 "local-video-upload-v1",
                 "clean-ui-labels-v1",
+                "production-console-ui-v1",
             ],
         }
 

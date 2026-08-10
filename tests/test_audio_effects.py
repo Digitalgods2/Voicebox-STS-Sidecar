@@ -206,6 +206,16 @@ class AdjustmentUiContractTests(unittest.TestCase):
         self.assertIn("/api/video/jobs", page)
         self.assertIn("local-video-upload-v1", page)
         self.assertIn("clean-ui-labels-v1", page)
+        self.assertIn("production-console-ui-v1", page)
+        self.assertEqual(page.count("stage-card stage-"), 7)
+        self.assertIn('id="header-voicebox"', page)
+        self.assertIn('id="header-engine"', page)
+        self.assertIn('id="header-media"', page)
+        self.assertIn('id="pipeline-progress"', page)
+        self.assertIn('id="dependency-ffmpeg"', page)
+        self.assertIn("--violet: #a970ff", page)
+        self.assertIn("--pink: #ff5eac", page)
+        self.assertIn("--cyan: #41dff4", page)
         for corrupted_text in (
             "\u00c2",
             "\u00e2\u20ac\u00a6",
@@ -252,6 +262,7 @@ class AdjustmentUiContractTests(unittest.TestCase):
         self.assertIn("youtube-source-cache-v1", response["features"])
         self.assertIn("local-video-upload-v1", response["features"])
         self.assertIn("clean-ui-labels-v1", response["features"])
+        self.assertIn("production-console-ui-v1", response["features"])
         self.assertFalse(cache_status["active"])
         self.assertFalse(clear_status["cleared"])
         self.assertIn("ffmpeg", local_status["checks"])

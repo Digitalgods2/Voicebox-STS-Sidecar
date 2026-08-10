@@ -9,20 +9,48 @@
     :root {
       color-scheme: dark;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #090d14;
-      color: #eef3f8;
-      --panel: #121923;
-      --panel-strong: #17202c;
-      --border: #293646;
-      --muted: #93a4b8;
-      --accent: #55d393;
-      --accent-strong: #2fb978;
-      --danger: #ff7b72;
-      --focus: #7dd3fc;
+      background: #080710;
+      color: #f4f1ff;
+      --panel: #11101d;
+      --panel-deep: #0b0a14;
+      --panel-raised: #171528;
+      --border: #302b48;
+      --muted: #a49dbb;
+      --muted-strong: #c5bfd6;
+      --violet: #a970ff;
+      --cyan: #41dff4;
+      --mint: #42efaa;
+      --lime: #b7f34b;
+      --pink: #ff5eac;
+      --coral: #ff775e;
+      --blue: #4ba6ff;
+      --danger: #ff6f82;
+      --focus: #8be8ff;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
     }
 
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 15% 0, #132332 0, #090d14 38rem); }
+    html { min-width: 320px; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 8% 0, rgb(147 79 255 / 16%), transparent 30rem),
+        radial-gradient(circle at 96% 18%, rgb(65 223 244 / 11%), transparent 34rem),
+        radial-gradient(circle at 55% 95%, rgb(255 94 172 / 7%), transparent 42rem),
+        #080710;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      opacity: .22;
+      background-image: linear-gradient(rgb(255 255 255 / 2.2%) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / 2.2%) 1px, transparent 1px);
+      background-size: 40px 40px;
+      mask-image: linear-gradient(to bottom, black, transparent 72%);
+    }
     button, select, input { font: inherit; }
     button, select, input[type="url"] { min-height: 44px; }
     button:focus-visible, select:focus-visible, input:focus-visible, audio:focus-visible, video:focus-visible, summary:focus-visible {
@@ -30,109 +58,291 @@
       outline-offset: 2px;
     }
 
-    .shell { width: min(1180px, calc(100% - 2rem)); margin: 0 auto; padding: 2.5rem 0 4rem; }
-    header { margin-bottom: 1.75rem; }
-    h1 { margin: 0; font-size: clamp(1.9rem, 4vw, 2.75rem); letter-spacing: -.04em; }
-    h2 { margin: 0; font-size: 1.08rem; }
+    .shell { width: min(1320px, calc(100% - 2rem)); margin: 0 auto; padding: 1.5rem 0 3.5rem; }
+    .hero {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1.5rem;
+      margin-bottom: 1.25rem;
+      padding: 1.25rem 1.35rem;
+      overflow: hidden;
+      border: 1px solid #34304b;
+      border-radius: 20px;
+      background: linear-gradient(145deg, rgb(23 21 40 / 96%), rgb(12 11 21 / 96%));
+      box-shadow: 0 24px 70px rgb(0 0 0 / 28%);
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 280px;
+      height: 280px;
+      right: -150px;
+      top: -170px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgb(169 112 255 / 28%), transparent 68%);
+      pointer-events: none;
+    }
+    .brand { display: flex; align-items: center; gap: 1rem; min-width: 0; }
+    .brand-mark {
+      position: relative;
+      width: 52px;
+      height: 52px;
+      flex: 0 0 auto;
+      border-radius: 16px;
+      background: conic-gradient(from 210deg, var(--violet), var(--cyan), var(--lime), var(--pink), var(--violet));
+      box-shadow: 0 0 30px rgb(169 112 255 / 25%);
+    }
+    .brand-mark::after {
+      content: "";
+      position: absolute;
+      inset: 15px;
+      border-radius: 7px;
+      background: #0b0913;
+      box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%);
+    }
+    h1 { margin: 0; font-size: clamp(1.65rem, 3vw, 2.2rem); letter-spacing: -.045em; }
+    h2 { margin: 0; font-size: 1.08rem; letter-spacing: -.015em; }
     p { line-height: 1.55; }
-    .lede { max-width: 720px; margin: .5rem 0 0; color: var(--muted); }
-    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 1.25rem; align-items: start; }
-    .controls { display: grid; gap: 1rem; }
-    .card { padding: 1.25rem; background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 18px 50px rgb(0 0 0 / 16%); }
-    .player { position: sticky; top: 1rem; display: grid; gap: 1rem; }
-    .player-card { background: linear-gradient(160deg, var(--panel-strong), var(--panel)); }
+    .lede { max-width: 680px; margin: .35rem 0 0; color: var(--muted); font: .82rem/1.55 var(--mono); }
+    .service-badges { position: relative; z-index: 1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .55rem; }
+    .service-pill, .version-pill, .mini-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .45rem;
+      min-height: 30px;
+      padding: .35rem .75rem;
+      border: 1px solid #3b3654;
+      border-radius: 999px;
+      background: rgb(11 10 20 / 76%);
+      color: var(--muted-strong);
+      font: 700 .72rem/1 var(--mono);
+      white-space: nowrap;
+    }
+    .service-pill::before, .dependency-item::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: #716a85;
+      box-shadow: 0 0 10px currentColor;
+    }
+    .service-pill[data-state="ready"] { border-color: rgb(66 239 170 / 40%); color: var(--mint); background: rgb(66 239 170 / 10%); }
+    .service-pill[data-state="bad"] { border-color: rgb(255 111 130 / 45%); color: var(--danger); background: rgb(255 111 130 / 10%); }
+    .service-pill[data-state="ready"]::before { background: var(--mint); }
+    .service-pill[data-state="bad"]::before { background: var(--danger); }
+    .version-pill { border: 0; color: #160b1b; background: linear-gradient(120deg, var(--pink), var(--violet)); }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 370px; gap: 1rem; align-items: start; }
+    .controls { display: grid; gap: .9rem; }
+    .card {
+      --stage: var(--violet);
+      --stage-2: var(--cyan);
+      position: relative;
+      overflow: hidden;
+      padding: 1.15rem 1.25rem 1.25rem;
+      border: 1px solid color-mix(in srgb, var(--stage) 38%, var(--border));
+      border-radius: 18px;
+      background: linear-gradient(155deg, rgb(19 17 34 / 97%), rgb(12 11 21 / 98%));
+      box-shadow: 0 18px 48px rgb(0 0 0 / 20%);
+    }
+    .card::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 2px;
+      background: linear-gradient(to bottom, var(--stage), transparent 72%);
+      opacity: .7;
+    }
+    .stage-1 { --stage: var(--violet); --stage-2: var(--pink); }
+    .stage-2 { --stage: var(--mint); --stage-2: var(--cyan); }
+    .stage-3 { --stage: var(--cyan); --stage-2: var(--blue); }
+    .stage-4 { --stage: var(--lime); --stage-2: var(--mint); }
+    .stage-5 { --stage: var(--pink); --stage-2: var(--violet); }
+    .stage-6 { --stage: var(--coral); --stage-2: var(--pink); }
+    .stage-7 { --stage: var(--blue); --stage-2: var(--cyan); }
+    .stage-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin: -1.15rem -1.25rem 1.1rem;
+      padding: .85rem 1.25rem;
+      border-bottom: 1px solid color-mix(in srgb, var(--stage) 35%, transparent);
+      background: linear-gradient(90deg, color-mix(in srgb, var(--stage) 22%, transparent), color-mix(in srgb, var(--stage-2) 7%, transparent));
+    }
+    .stage-title { display: flex; align-items: center; gap: .75rem; min-width: 0; }
+    .step-number {
+      display: grid;
+      width: 32px;
+      height: 32px;
+      flex: 0 0 auto;
+      place-items: center;
+      border-radius: 10px;
+      color: #0b0913;
+      background: linear-gradient(135deg, var(--stage), var(--stage-2));
+      box-shadow: 0 6px 20px color-mix(in srgb, var(--stage) 25%, transparent);
+      font: 900 .95rem/1 var(--mono);
+    }
+    .stage-tag { color: color-mix(in srgb, var(--stage) 76%, white); }
+    .player { position: sticky; top: .75rem; display: grid; gap: .9rem; }
+    .player-card { --stage: var(--violet); background: linear-gradient(155deg, rgb(23 20 40 / 98%), rgb(12 11 21 / 98%)); }
+    .player-card.audio-card { --stage: var(--cyan); }
+    .player-card.source-video-card { --stage: var(--violet); }
+    .player-card.output-video-card { --stage: var(--pink); }
+    .player-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
     .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .25rem; }
-    .eyebrow { margin: 0 0 .35rem; color: var(--accent); font-size: .75rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .eyebrow { margin: 0 0 .35rem; color: var(--stage, var(--mint)); font: 800 .7rem/1.25 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
     .muted, .status { color: var(--muted); }
-    .status { margin: .7rem 0 0; min-height: 1.5em; font-size: .92rem; }
-    .status.ok, .ok { color: var(--accent); }
+    .muted { margin: .55rem 0 0; font-size: .9rem; }
+    .status { margin: .7rem 0 0; min-height: 1.5em; font-size: .86rem; }
+    .status.ok, .ok { color: var(--mint); }
     .status.bad, .bad { color: var(--danger); }
-    label { display: block; margin: 1rem 0 .45rem; font-size: .9rem; font-weight: 700; }
+    .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+    .field { min-width: 0; }
+    label { display: block; margin: .9rem 0 .4rem; color: color-mix(in srgb, var(--stage) 72%, white); font: 800 .72rem/1.2 var(--mono); letter-spacing: .07em; text-transform: uppercase; }
     select {
-      width: 100%; padding: .7rem .8rem; border: 1px solid #3a4a5e; border-radius: 10px;
-      background: #0b1119; color: inherit;
+      width: 100%; padding: .72rem .8rem; border: 1px solid color-mix(in srgb, var(--stage) 34%, #3a3550); border-radius: 11px;
+      background: var(--panel-deep); color: inherit;
     }
     input[type="url"] {
-      width: 100%; padding: .7rem .8rem; border: 1px solid #3a4a5e; border-radius: 10px;
-      background: #0b1119; color: inherit;
+      width: 100%; padding: .72rem .8rem; border: 1px solid color-mix(in srgb, var(--stage) 38%, #3a3550); border-radius: 11px;
+      background: var(--panel-deep); color: inherit; font-family: var(--mono);
     }
-    input[type="range"] { width: 100%; min-height: 32px; margin: .25rem 0 0; accent-color: var(--accent-strong); }
+    input[type="range"] { width: 100%; min-height: 32px; margin: .25rem 0 0; accent-color: var(--stage); }
     button {
-      border: 1px solid var(--accent-strong); border-radius: 10px; padding: .7rem 1rem;
-      background: var(--accent-strong); color: #04120b; cursor: pointer; font-weight: 800;
-      transition: transform .12s ease, background .12s ease, border-color .12s ease;
+      border: 1px solid transparent; border-radius: 999px; padding: .7rem 1.15rem;
+      background: linear-gradient(110deg, var(--stage), var(--stage-2)); color: #090711; cursor: pointer; font-weight: 850;
+      box-shadow: 0 8px 22px color-mix(in srgb, var(--stage) 18%, transparent);
+      transition: transform .14s ease, filter .14s ease, box-shadow .14s ease;
     }
-    button:hover:not(:disabled) { transform: translateY(-1px); background: var(--accent); border-color: var(--accent); }
+    button:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.12); box-shadow: 0 11px 28px color-mix(in srgb, var(--stage) 24%, transparent); }
     button:disabled { opacity: .42; cursor: not-allowed; }
-    button.secondary { background: #1a2633; border-color: #3a4a5e; color: #e8f0f7; }
-    button.secondary:hover:not(:disabled) { background: #243548; border-color: #526981; }
+    button.secondary { background: color-mix(in srgb, var(--stage) 9%, var(--panel-deep)); border-color: color-mix(in srgb, var(--stage) 45%, #39324e); color: color-mix(in srgb, var(--stage) 45%, white); box-shadow: none; }
+    button.secondary:hover:not(:disabled) { background: color-mix(in srgb, var(--stage) 16%, var(--panel-deep)); border-color: var(--stage); }
     .action-row { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; }
     .action-row button { flex: 1 1 190px; }
-    .file-picker { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .8rem; margin-top: .8rem; }
+    .file-picker { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .8rem; margin-top: .9rem; padding: .8rem; border: 1px solid color-mix(in srgb, var(--stage) 24%, var(--border)); border-radius: 13px; background: rgb(8 7 16 / 58%); }
     .file-picker button { white-space: nowrap; }
-    .file-name { min-width: 0; color: var(--muted); font-size: .9rem; overflow-wrap: anywhere; }
-    details { margin-top: .8rem; border-top: 1px solid var(--border); padding-top: .7rem; }
-    summary { color: var(--muted); cursor: pointer; font-size: .85rem; }
-    pre { margin: .65rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #b9ddff; font: .78rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
-    .now-playing { margin: .5rem 0 1rem; color: #dfe9f3; font-weight: 700; overflow-wrap: anywhere; }
-    audio { display: block; width: 100%; margin-bottom: .95rem; accent-color: var(--accent-strong); }
+    .file-name { min-width: 0; color: var(--muted-strong); font: .82rem/1.45 var(--mono); overflow-wrap: anywhere; }
+    .technical-note { margin: .8rem 0 0; color: var(--muted); font: .74rem/1.55 var(--mono); }
+    .engine-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; margin-top: .85rem; }
+    .engine-fact { padding: .72rem .75rem; border: 1px solid color-mix(in srgb, var(--stage) 20%, var(--border)); border-radius: 12px; background: rgb(8 7 16 / 55%); }
+    .engine-fact span { display: block; margin-bottom: .4rem; color: var(--muted); font: 700 .64rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .engine-fact strong { color: color-mix(in srgb, var(--stage) 65%, white); font: 750 .84rem/1.2 var(--mono); overflow-wrap: anywhere; }
+    details { margin-top: .85rem; border-top: 1px solid color-mix(in srgb, var(--stage) 18%, var(--border)); padding-top: .75rem; }
+    summary { color: var(--muted); cursor: pointer; font: .78rem/1.3 var(--mono); }
+    pre { max-height: 25rem; margin: .65rem 0 0; padding: .75rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 10px; background: #080711; color: #bde9ff; font: .73rem/1.5 var(--mono); }
+    .now-playing { margin: .5rem 0 1rem; color: #ece8f7; font-weight: 750; overflow-wrap: anywhere; }
+    audio { display: block; width: 100%; margin-bottom: .95rem; accent-color: var(--stage); }
     .audition-list { display: grid; gap: .6rem; }
     .audition-list button { width: 100%; text-align: left; }
     .player-note { margin: 1rem 0 0; color: var(--muted); font-size: .84rem; }
     .checkbox-row { display: flex; align-items: flex-start; gap: .65rem; margin-top: 1rem; color: var(--muted); font-size: .88rem; line-height: 1.45; }
-    .checkbox-row input { width: 1.1rem; height: 1.1rem; margin-top: .15rem; accent-color: var(--accent-strong); flex: 0 0 auto; }
-    .checkbox-row label { margin: 0; font-weight: 500; }
-    .adjustment-grid { display: grid; gap: 1.1rem; margin-top: 1rem; }
-    .adjustment-control { padding: .9rem; border: 1px solid var(--border); border-radius: 12px; background: #0b1119; }
+    .checkbox-row input { width: 1.1rem; height: 1.1rem; margin-top: .15rem; accent-color: var(--stage); flex: 0 0 auto; }
+    .checkbox-row label { margin: 0; color: var(--muted-strong); font-family: inherit; font-weight: 500; letter-spacing: 0; text-transform: none; }
+    .adjustment-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; margin-top: 1rem; }
+    .adjustment-control { padding: .95rem; border: 1px solid color-mix(in srgb, var(--stage) 23%, var(--border)); border-radius: 13px; background: #0b0a14; }
     .adjustment-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
     .adjustment-heading label { margin: 0; }
-    .adjustment-heading output { color: var(--accent); font: 800 .9rem/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .adjustment-heading output { color: #f9f7ff; font: 850 1.1rem/1 var(--mono); }
     .range-scale { display: flex; justify-content: space-between; color: var(--muted); font-size: .75rem; }
-    .cache-panel { margin-top: .9rem; padding: .85rem; border: 1px solid var(--border); border-radius: 12px; background: #0b1119; }
+    .cache-panel { margin-top: .9rem; padding: .85rem; border: 1px solid color-mix(in srgb, var(--stage) 24%, var(--border)); border-radius: 13px; background: #0b0a14; }
     .cache-panel .section-heading { margin: 0; }
     .cache-panel .status { margin-top: .35rem; }
     .cache-panel button { min-height: 36px; padding: .45rem .75rem; font-size: .82rem; }
-    progress { width: 100%; height: .75rem; margin-top: 1rem; accent-color: var(--accent-strong); }
-    video { display: block; width: 100%; max-height: 260px; margin-top: 1rem; border-radius: 10px; background: #05080d; }
-    .download-link { display: block; margin-top: .8rem; padding: .7rem 1rem; border: 1px solid var(--accent-strong); border-radius: 10px; color: var(--accent); text-align: center; text-decoration: none; font-weight: 800; }
+    progress { width: 100%; height: .65rem; margin-top: 1rem; overflow: hidden; border: 0; border-radius: 999px; accent-color: var(--stage); background: #080711; }
+    progress::-webkit-progress-bar { background: #080711; border-radius: 999px; }
+    progress::-webkit-progress-value { border-radius: 999px; background: linear-gradient(90deg, var(--stage), var(--stage-2), var(--cyan)); }
+    progress::-moz-progress-bar { border-radius: 999px; background: linear-gradient(90deg, var(--stage), var(--stage-2), var(--cyan)); }
+    video { display: block; width: 100%; max-height: 260px; margin-top: 1rem; border: 1px solid color-mix(in srgb, var(--stage) 28%, var(--border)); border-radius: 12px; background: #05040a; }
+    .download-link { display: block; margin-top: .8rem; padding: .72rem 1rem; border: 1px solid color-mix(in srgb, var(--stage) 55%, var(--border)); border-radius: 999px; background: color-mix(in srgb, var(--stage) 9%, transparent); color: color-mix(in srgb, var(--stage) 50%, white); text-align: center; text-decoration: none; font-weight: 850; }
+    .download-link:hover { background: linear-gradient(110deg, var(--lime), var(--mint)); color: #09110c; border-color: transparent; }
+    .pipeline-monitor { margin-top: .9rem; padding: .75rem; border: 1px solid color-mix(in srgb, var(--stage) 24%, var(--border)); border-radius: 12px; background: #0b0a14; }
+    .pipeline-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; color: var(--muted); font: .72rem/1.4 var(--mono); }
+    .pipeline-row strong { color: var(--muted-strong); text-align: right; }
+    .system-board { --stage: var(--mint); }
+    .dependency-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; margin-top: .8rem; }
+    .dependency-item { display: flex; align-items: center; gap: .5rem; min-width: 0; padding: .55rem .6rem; border: 1px solid #29243b; border-radius: 9px; color: var(--muted-strong); font: .7rem/1.25 var(--mono); }
+    .dependency-item::before { background: #716a85; color: #716a85; }
+    .dependency-item[data-state="ready"]::before { background: var(--mint); color: var(--mint); }
+    .dependency-item[data-state="bad"]::before { background: var(--danger); color: var(--danger); }
+    .privacy-strip { display: flex; justify-content: space-between; gap: 1rem; margin-top: 1rem; padding: .8rem 1rem; border: 1px solid #2d2840; border-radius: 14px; color: var(--muted); background: rgb(12 11 21 / 78%); font: .72rem/1.4 var(--mono); }
+    .privacy-strip strong { color: var(--mint); }
     [hidden] { display: none !important; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
-    @media (max-width: 820px) {
-      .shell { padding-top: 1.5rem; }
+    @media (max-width: 1040px) {
       .layout { grid-template-columns: 1fr; }
       .player { position: static; }
       .player { order: 2; }
+      .player { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .system-board { grid-column: 1 / -1; }
     }
-    @media (max-width: 520px) {
-      .shell { width: min(100% - 1rem, 1180px); }
-      .card { padding: 1rem; border-radius: 13px; }
+    @media (max-width: 720px) {
+      .shell { width: min(100% - 1rem, 1320px); padding-top: .5rem; }
+      .hero { align-items: flex-start; flex-direction: column; padding: 1rem; border-radius: 16px; }
+      .service-badges { justify-content: flex-start; }
+      .layout, .player, .field-grid, .adjustment-grid { grid-template-columns: 1fr; }
+      .system-board { grid-column: auto; }
+      .card { padding: 1rem; border-radius: 15px; }
+      .stage-header { margin: -1rem -1rem 1rem; padding: .8rem 1rem; }
+      .engine-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .privacy-strip { flex-direction: column; }
+    }
+    @media (max-width: 460px) {
+      .brand-mark { width: 44px; height: 44px; border-radius: 13px; }
+      .brand-mark::after { inset: 13px; }
+      .stage-header { align-items: flex-start; }
+      .stage-tag { display: none; }
       .file-picker { grid-template-columns: 1fr; }
       .file-picker button { width: 100%; }
+      .engine-facts, .dependency-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <main class="shell">
-    <header>
-      <p class="eyebrow">Fully local voice conversion</p>
-      <h1>VoiceBox STS Bridge</h1>
-      <p class="lede">Convert an authorized recording to a selected VoiceBox voice while keeping its original delivery. Audio stays on this computer.</p>
+    <header class="hero">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <p class="eyebrow">Fully local voice conversion</p>
+          <h1>VoiceBox STS Sidecar</h1>
+          <p class="lede"><span id="hero-endpoint">local bridge</span> - your machine, your voice, your files</p>
+        </div>
+      </div>
+      <div class="service-badges" aria-label="Local service status">
+        <span id="header-voicebox" class="service-pill" data-state="checking">voicebox</span>
+        <span id="header-engine" class="service-pill" data-state="checking">openvoice</span>
+        <span id="header-media" class="service-pill" data-state="checking">ffmpeg</span>
+        <span id="header-version" class="version-pill">loading</span>
+      </div>
     </header>
 
     <div class="layout">
       <div class="controls">
-        <section class="card" aria-labelledby="voice-heading">
-          <div class="section-heading">
-            <h2 id="voice-heading">1. Choose a target voice</h2>
+        <section class="card stage-card stage-1" aria-labelledby="voice-heading">
+          <div class="stage-header">
+            <div class="stage-title">
+              <span class="step-number">1</span>
+              <h2 id="voice-heading">Choose a target voice</h2>
+            </div>
+            <span class="stage-tag mini-badge">profile + reference</span>
           </div>
           <p id="health" class="status" role="status" aria-live="polite">Checking VoiceBox…</p>
 
-          <label for="profile">Cloned profile</label>
-          <select id="profile" disabled><option value="">Loading profiles…</option></select>
-
-          <label for="sample">Reference sample</label>
-          <select id="sample" disabled><option value="">Select a profile first</option></select>
+          <div class="field-grid">
+            <div class="field">
+              <label for="profile">Cloned profile</label>
+              <select id="profile" disabled><option value="">Loading profiles…</option></select>
+            </div>
+            <div class="field">
+              <label for="sample">Reference sample</label>
+              <select id="sample" disabled><option value="">Select a profile first</option></select>
+            </div>
+          </div>
 
           <div class="action-row">
             <button id="fetch" type="button" class="secondary" disabled>Cache selected reference WAV</button>
@@ -144,9 +354,21 @@
           </details>
         </section>
 
-        <section class="card" aria-labelledby="engine-heading">
-          <h2 id="engine-heading">2. Check the conversion engine</h2>
+        <section class="card stage-card stage-2" aria-labelledby="engine-heading">
+          <div class="stage-header">
+            <div class="stage-title">
+              <span class="step-number">2</span>
+              <h2 id="engine-heading">Check the conversion engine</h2>
+            </div>
+            <span id="engine-card-badge" class="stage-tag mini-badge">checking</span>
+          </div>
           <p id="engine" class="status" role="status" aria-live="polite">Checking isolated engine…</p>
+          <div class="engine-facts" aria-label="Conversion engine facts">
+            <div class="engine-fact"><span>Runtime</span><strong id="engine-runtime">checking</strong></div>
+            <div class="engine-fact"><span>Checkpoint</span><strong id="engine-checkpoint">checking</strong></div>
+            <div class="engine-fact"><span>Precision</span><strong>FP32</strong></div>
+            <div class="engine-fact"><span>Audio</span><strong>22.05 kHz mono</strong></div>
+          </div>
           <div class="action-row">
             <button id="probe" type="button" class="secondary" disabled>Load model and probe CUDA</button>
           </div>
@@ -157,8 +379,14 @@
           </details>
         </section>
 
-        <section class="card" aria-labelledby="source-heading">
-          <h2 id="source-heading">3. Upload source audio</h2>
+        <section class="card stage-card stage-3" aria-labelledby="source-heading">
+          <div class="stage-header">
+            <div class="stage-title">
+              <span class="step-number">3</span>
+              <h2 id="source-heading">Upload source audio</h2>
+            </div>
+            <span class="stage-tag mini-badge">limit 1 GiB</span>
+          </div>
           <p class="muted">Choose a recording you own or have permission to convert. A short 30–60 second WAV is best for the first test.</p>
           <label for="source" class="sr-only">Authorized source audio file</label>
           <input id="source" type="file" accept=".wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.wma" hidden>
@@ -166,6 +394,7 @@
             <button id="choose-source" type="button">Choose source audio…</button>
             <span id="source-name" class="file-name">No file selected</span>
           </div>
+          <p class="technical-note">WAV · MP3 · FLAC · M4A · AAC · OGG · OPUS · WMA - streamed to a UUID name under data/inputs/</p>
           <p id="upload-status" class="status" role="status" aria-live="polite"></p>
           <details id="upload-details" hidden>
             <summary>Upload details</summary>
@@ -173,8 +402,14 @@
           </details>
         </section>
 
-        <section class="card" aria-labelledby="adjustments-heading">
-          <h2 id="adjustments-heading">4. Shape the converted voice</h2>
+        <section class="card stage-card stage-4" aria-labelledby="adjustments-heading">
+          <div class="stage-header">
+            <div class="stage-title">
+              <span class="step-number">4</span>
+              <h2 id="adjustments-heading">Shape the converted voice</h2>
+            </div>
+            <span class="stage-tag mini-badge">saved per profile</span>
+          </div>
           <p class="muted">These settings apply to local audio, local video, and YouTube jobs. Pitch keeps tempo and formants intact; brightness changes tonal depth without changing timing.</p>
           <div class="adjustment-grid">
             <div class="adjustment-control">
@@ -200,8 +435,14 @@
           </div>
         </section>
 
-        <section class="card" aria-labelledby="convert-heading">
-          <h2 id="convert-heading">5. Convert locally</h2>
+        <section class="card stage-card stage-5" aria-labelledby="convert-heading">
+          <div class="stage-header">
+            <div class="stage-title">
+              <span class="step-number">5</span>
+              <h2 id="convert-heading">Convert local audio</h2>
+            </div>
+            <span class="stage-tag mini-badge">validated WAV</span>
+          </div>
           <p class="muted">Conversion becomes available after the engine, source audio, profile, and reference sample are ready.</p>
           <div class="action-row">
             <button id="convert" type="button" disabled>Convert with selected profile</button>
@@ -213,9 +454,17 @@
           </details>
         </section>
 
-        <section class="card" aria-labelledby="youtube-heading">
-          <p class="eyebrow">Long-form production</p>
-          <h2 id="youtube-heading">6. Convert a YouTube video</h2>
+        <section class="card stage-card stage-6" aria-labelledby="youtube-heading">
+          <div class="stage-header">
+            <div class="stage-title">
+              <span class="step-number">6</span>
+              <div>
+                <p class="eyebrow">Long-form production</p>
+                <h2 id="youtube-heading">Convert a YouTube video</h2>
+              </div>
+            </div>
+            <span id="youtube-card-badge" class="stage-tag mini-badge">checking cache</span>
+          </div>
           <p class="muted">Downloads one authorized video, converts its soundtrack in overlapping lossless chunks, and remuxes the exact-length result without re-encoding the video.</p>
           <p id="youtube-engine" class="status" role="status" aria-live="polite">Checking YouTube tools…</p>
           <div class="cache-panel" aria-labelledby="youtube-cache-heading">
@@ -242,9 +491,17 @@
           </details>
         </section>
 
-        <section class="card" aria-labelledby="local-video-heading">
-          <p class="eyebrow">Local video production</p>
-          <h2 id="local-video-heading">7. Import a video from this PC</h2>
+        <section class="card stage-card stage-7" aria-labelledby="local-video-heading">
+          <div class="stage-header">
+            <div class="stage-title">
+              <span class="step-number">7</span>
+              <div>
+                <p class="eyebrow">Local video production</p>
+                <h2 id="local-video-heading">Import a video from this PC</h2>
+              </div>
+            </div>
+            <span class="stage-tag mini-badge">12 GiB · no yt-dlp</span>
+          </div>
           <p class="muted">Choose an authorized local video. It uses the same lossless extraction, overlapping STS chunks, exact-timing reconstruction, pitch/tone controls, stream-copy video, and FLAC remux used for YouTube.</p>
           <p id="local-video-engine" class="status" role="status" aria-live="polite">Checking local video tools...</p>
           <label for="local-video-input" class="sr-only">Authorized local video file</label>
@@ -272,9 +529,14 @@
       </div>
 
       <aside class="player" aria-labelledby="player-heading">
-        <section class="card player-card">
-          <p class="eyebrow">Audition</p>
-          <h2 id="player-heading">Audio player</h2>
+        <section class="card player-card audio-card">
+          <div class="player-heading">
+            <div>
+              <p class="eyebrow">Audition</p>
+              <h2 id="player-heading">Audio player</h2>
+            </div>
+            <span class="mini-badge">3 sources</span>
+          </div>
           <p id="player-label" class="now-playing" aria-live="polite">Nothing loaded</p>
           <audio id="audio-player" controls preload="metadata">
             Your browser does not support audio playback.
@@ -286,9 +548,14 @@
           </div>
           <p id="player-status" class="player-note" role="status" aria-live="polite">Upload a source or choose a reference to begin.</p>
         </section>
-        <section class="card player-card" aria-labelledby="local-video-player-heading">
-          <p class="eyebrow">Imported source</p>
-          <h2 id="local-video-player-heading">Local video player</h2>
+        <section class="card player-card source-video-card" aria-labelledby="local-video-player-heading">
+          <div class="player-heading">
+            <div>
+              <p class="eyebrow">Imported source</p>
+              <h2 id="local-video-player-heading">Local video player</h2>
+            </div>
+            <span class="mini-badge">source</span>
+          </div>
           <p id="local-video-player-label" class="now-playing" aria-live="polite">No local video imported</p>
           <video id="local-video-player" controls preload="metadata" hidden>
             Your browser does not support video playback.
@@ -296,21 +563,57 @@
           <a id="local-video-download" class="download-link" href="#" hidden>Open or save the imported video</a>
           <p class="player-note">Use this player to check the selected source before conversion. Playback depends on whether your browser supports the file's original container and codecs.</p>
         </section>
-        <section class="card player-card" aria-labelledby="video-player-heading">
-          <p class="eyebrow">Lossless master</p>
-          <h2 id="video-player-heading">Finished video</h2>
+        <section class="card player-card output-video-card" aria-labelledby="video-player-heading">
+          <div class="player-heading">
+            <div>
+              <p class="eyebrow">Lossless master</p>
+              <h2 id="video-player-heading">Finished video</h2>
+            </div>
+            <span id="video-job-badge" class="mini-badge">idle</span>
+          </div>
           <p id="video-player-label" class="now-playing" aria-live="polite">No video job completed</p>
           <video id="video-player" controls preload="metadata" hidden>
             Your browser does not support video playback.
           </video>
           <a id="video-download" class="download-link" href="#" download hidden>Open or save the MKV master</a>
+          <div class="pipeline-monitor" aria-label="Latest video pipeline status">
+            <div class="pipeline-row"><span>Current stage</span><strong id="pipeline-stage">Waiting for a video job</strong></div>
+            <progress id="pipeline-progress" max="100" value="0"></progress>
+          </div>
           <p class="player-note">The master keeps the source video stream unchanged and stores the converted audio as lossless FLAC. Browser playback depends on the original video codec; the file remains playable in VLC.</p>
+        </section>
+        <section class="card player-card system-board" aria-labelledby="system-heading">
+          <div class="player-heading">
+            <div>
+              <p class="eyebrow">Local stack</p>
+              <h2 id="system-heading">Dependencies</h2>
+            </div>
+            <span id="system-badge" class="mini-badge">checking</span>
+          </div>
+          <div class="dependency-grid">
+            <div id="dependency-voicebox" class="dependency-item" data-state="checking">VoiceBox</div>
+            <div id="dependency-openvoice" class="dependency-item" data-state="checking">OpenVoice</div>
+            <div id="dependency-ffmpeg" class="dependency-item" data-state="checking">FFmpeg</div>
+            <div id="dependency-ffprobe" class="dependency-item" data-state="checking">FFprobe</div>
+            <div id="dependency-ytdlp" class="dependency-item" data-state="checking">yt-dlp</div>
+            <div id="dependency-node" class="dependency-item" data-state="checking">Node</div>
+          </div>
+          <p class="player-note">Every inference and media-processing step stays on this machine.</p>
         </section>
       </aside>
     </div>
+    <footer class="privacy-strip">
+      <span><strong>Local inference only</strong> - no cloud API and no per-minute credits</span>
+      <span>MKV masters are validated before they are served</span>
+    </footer>
   </main>
 
   <script>
+    const heroEndpoint = document.querySelector('#hero-endpoint');
+    const headerVoiceBox = document.querySelector('#header-voicebox');
+    const headerEngine = document.querySelector('#header-engine');
+    const headerMedia = document.querySelector('#header-media');
+    const headerVersion = document.querySelector('#header-version');
     const health = document.querySelector('#health');
     const profile = document.querySelector('#profile');
     const sample = document.querySelector('#sample');
@@ -323,6 +626,9 @@
     const probeSummary = document.querySelector('#probe-summary');
     const probeDetails = document.querySelector('#probe-details');
     const probeResult = document.querySelector('#probe-result');
+    const engineCardBadge = document.querySelector('#engine-card-badge');
+    const engineRuntime = document.querySelector('#engine-runtime');
+    const engineCheckpoint = document.querySelector('#engine-checkpoint');
     const source = document.querySelector('#source');
     const chooseSourceButton = document.querySelector('#choose-source');
     const sourceName = document.querySelector('#source-name');
@@ -355,6 +661,7 @@
     const youtubeSummary = document.querySelector('#youtube-summary');
     const youtubeDetails = document.querySelector('#youtube-details');
     const youtubeResult = document.querySelector('#youtube-result');
+    const youtubeCardBadge = document.querySelector('#youtube-card-badge');
     const localVideoEngine = document.querySelector('#local-video-engine');
     const localVideoInput = document.querySelector('#local-video-input');
     const chooseLocalVideoButton = document.querySelector('#choose-local-video');
@@ -373,6 +680,16 @@
     const videoPlayer = document.querySelector('#video-player');
     const videoPlayerLabel = document.querySelector('#video-player-label');
     const videoDownload = document.querySelector('#video-download');
+    const videoJobBadge = document.querySelector('#video-job-badge');
+    const pipelineStage = document.querySelector('#pipeline-stage');
+    const pipelineProgress = document.querySelector('#pipeline-progress');
+    const systemBadge = document.querySelector('#system-badge');
+    const dependencyVoiceBox = document.querySelector('#dependency-voicebox');
+    const dependencyOpenVoice = document.querySelector('#dependency-openvoice');
+    const dependencyFfmpeg = document.querySelector('#dependency-ffmpeg');
+    const dependencyFfprobe = document.querySelector('#dependency-ffprobe');
+    const dependencyYtDlp = document.querySelector('#dependency-ytdlp');
+    const dependencyNode = document.querySelector('#dependency-node');
 
     let backendCompatible = false;
     let engineReady = false;
@@ -392,8 +709,10 @@
     const requiredBackendFeatures = [
       'youtube-source-cache-v1',
       'local-video-upload-v1',
-      'clean-ui-labels-v1'
+      'clean-ui-labels-v1',
+      'production-console-ui-v1'
     ];
+    heroEndpoint.textContent = window.location.host || 'local bridge';
 
     async function json(url, options) {
       const response = await fetch(url, options);
@@ -421,6 +740,39 @@
     function setStatus(element, message, state = '') {
       element.textContent = message;
       element.className = `status${state ? ` ${state}` : ''}`;
+    }
+
+    function setIndicator(element, label, state) {
+      element.textContent = label;
+      element.dataset.state = state;
+    }
+
+    function setDependency(element, label, ready, detail = '') {
+      element.textContent = detail ? `${label} · ${detail}` : label;
+      element.dataset.state = ready ? 'ready' : 'bad';
+      updateSystemBadge();
+    }
+
+    function updateSystemBadge() {
+      const dependencies = [
+        dependencyVoiceBox,
+        dependencyOpenVoice,
+        dependencyFfmpeg,
+        dependencyFfprobe,
+        dependencyYtDlp,
+        dependencyNode
+      ];
+      const states = dependencies.map(item => item.dataset.state);
+      if (states.every(state => state === 'ready')) {
+        systemBadge.textContent = 'all ready';
+        systemBadge.className = 'mini-badge ok';
+      } else if (states.some(state => state === 'bad')) {
+        systemBadge.textContent = 'attention';
+        systemBadge.className = 'mini-badge bad';
+      } else {
+        systemBadge.textContent = 'checking';
+        systemBadge.className = 'mini-badge';
+      }
     }
 
     function showDetails(container, output, value) {
@@ -453,12 +805,18 @@
         const hits = Number(youtubeCache.hit_count) || 0;
         youtubeCacheSummary.textContent = `${title} · ${formatBytes(youtubeCache.size_bytes)} · reused ${hits} time${hits === 1 ? '' : 's'}`;
         youtubeCacheSummary.className = 'status ok';
+        youtubeCardBadge.textContent = `cached · ${youtubeCache.video_id}`;
+        youtubeCardBadge.className = 'stage-tag mini-badge ok';
       } else if (youtubeCache.invalid) {
         youtubeCacheSummary.textContent = 'The cached download is invalid and will be replaced on the next job.';
         youtubeCacheSummary.className = 'status bad';
+        youtubeCardBadge.textContent = 'cache invalid';
+        youtubeCardBadge.className = 'stage-tag mini-badge bad';
       } else {
         youtubeCacheSummary.textContent = 'No cached video. The next authorized job will download and cache one.';
         youtubeCacheSummary.className = 'status';
+        youtubeCardBadge.textContent = 'cache empty';
+        youtubeCardBadge.className = 'stage-tag mini-badge';
       }
       updateActions();
     }
@@ -701,6 +1059,10 @@
       videoDownload.download = `voicebox-sts-${job.job_id}.mkv`;
       videoDownload.hidden = false;
       videoPlayerLabel.textContent = job.video?.title || `Completed job ${job.job_id}`;
+      videoJobBadge.textContent = 'completed';
+      videoJobBadge.className = 'mini-badge ok';
+      pipelineStage.textContent = 'Completed and fully decoded';
+      pipelineProgress.value = 100;
     }
 
     function showImportedVideo(upload) {
@@ -754,6 +1116,10 @@
         const progress = Math.max(0, Math.min(100, Number(job.progress_percent) || 0));
         targets.progress.hidden = false;
         targets.progress.value = progress;
+        pipelineProgress.value = progress;
+        pipelineStage.textContent = videoStageLabel(job.stage);
+        videoJobBadge.textContent = job.status === 'running' ? `${progress.toFixed(0)}%` : job.status;
+        videoJobBadge.className = `mini-badge${job.status === 'completed' ? ' ok' : job.status === 'failed' ? ' bad' : ''}`;
         const completedChunks = job.status === 'completed' ? job.chunk_count : (job.chunks_completed || 0);
         const chunks = job.chunk_count ? ` · ${completedChunks}/${job.chunk_count} chunks` : '';
         setStatus(
@@ -789,6 +1155,9 @@
         } else {
           activeVideoJob = null;
           setStatus(targets.summary, error.message, 'bad');
+          videoJobBadge.textContent = 'status error';
+          videoJobBadge.className = 'mini-badge bad';
+          pipelineStage.textContent = error.message;
         }
       } finally {
         updateActions();
@@ -805,12 +1174,17 @@
           throw new Error('The running bridge backend is older than this page.');
         }
         backendCompatible = true;
+        headerVersion.textContent = `v${backend.version || 'current'}`;
       } catch (error) {
         const message = 'Restart required: close the existing bridge console, then run start-bridge.bat again.';
         setStatus(health, message, 'bad');
         setStatus(engine, message, 'bad');
         setStatus(youtubeEngine, message, 'bad');
         setStatus(localVideoEngine, message, 'bad');
+        setIndicator(headerVoiceBox, 'voicebox unavailable', 'bad');
+        setIndicator(headerEngine, 'openvoice unavailable', 'bad');
+        setIndicator(headerMedia, 'ffmpeg unavailable', 'bad');
+        headerVersion.textContent = 'restart';
         updateActions();
         return;
       }
@@ -818,6 +1192,8 @@
       try {
         const status = await json('/api/voicebox/health');
         setStatus(health, `${status.status || 'Available'} · ${status.gpu_type || 'GPU status unavailable'}`, 'ok');
+        setIndicator(headerVoiceBox, 'voicebox ready', 'ready');
+        setDependency(dependencyVoiceBox, 'VoiceBox', true, 'healthy');
         const profiles = (await json('/api/profiles')).filter(item => item.voice_type === 'cloned' && item.sample_count > 0);
         profileRecords = new Map(profiles.map(item => [item.id, item]));
         profile.replaceChildren(option('', profiles.length ? 'Choose a cloned profile' : 'No cloned profiles with samples found'));
@@ -828,6 +1204,8 @@
         profile.disabled = profiles.length === 0;
       } catch (error) {
         setStatus(health, error.message, 'bad');
+        setIndicator(headerVoiceBox, 'voicebox unavailable', 'bad');
+        setDependency(dependencyVoiceBox, 'VoiceBox', false, 'unavailable');
         profile.replaceChildren(option('', 'VoiceBox unavailable'));
       }
 
@@ -835,15 +1213,29 @@
         const state = await json('/api/engine/status');
         engineReady = Boolean(state.ready);
         setStatus(engine, state.ready ? `Ready · Python ${state.python_version || 'available'}` : 'Installation incomplete', state.ready ? 'ok' : 'bad');
+        setIndicator(headerEngine, state.ready ? 'openvoice ready' : 'openvoice incomplete', state.ready ? 'ready' : 'bad');
+        setDependency(dependencyOpenVoice, 'OpenVoice', state.ready, state.ready ? 'ready' : 'incomplete');
+        engineCardBadge.textContent = state.ready ? 'runtime ready' : 'incomplete';
+        engineCardBadge.className = `stage-tag mini-badge${state.ready ? ' ok' : ' bad'}`;
+        engineRuntime.textContent = state.python_version ? `Python ${state.python_version}` : 'available';
+        engineCheckpoint.textContent = state.checks?.converter_checkpoint ? 'verified' : 'missing';
         probeButton.disabled = !state.ready;
       } catch (error) {
         engineReady = false;
         setStatus(engine, error.message, 'bad');
+        setIndicator(headerEngine, 'openvoice unavailable', 'bad');
+        setDependency(dependencyOpenVoice, 'OpenVoice', false, 'unavailable');
+        engineCardBadge.textContent = 'unavailable';
+        engineCardBadge.className = 'stage-tag mini-badge bad';
+        engineRuntime.textContent = 'unavailable';
+        engineCheckpoint.textContent = 'unknown';
       }
 
       try {
         const state = await json('/api/youtube/status');
         youtubeReady = Boolean(state.ready);
+        const ffmpegReady = Boolean(state.checks?.ffmpeg);
+        const ffprobeReady = Boolean(state.checks?.ffprobe);
         setStatus(
           youtubeEngine,
           state.ready
@@ -851,16 +1243,25 @@
             : 'YouTube pipeline installation is incomplete',
           state.ready ? 'ok' : 'bad'
         );
+        setIndicator(headerMedia, ffmpegReady && ffprobeReady ? 'ffmpeg ready' : 'ffmpeg incomplete', ffmpegReady && ffprobeReady ? 'ready' : 'bad');
+        setDependency(dependencyFfmpeg, 'FFmpeg', ffmpegReady, ffmpegReady ? 'ready' : 'missing');
+        setDependency(dependencyFfprobe, 'FFprobe', ffprobeReady, ffprobeReady ? 'ready' : 'missing');
+        setDependency(dependencyYtDlp, 'yt-dlp', Boolean(state.checks?.yt_dlp), state.yt_dlp_version || 'missing');
+        setDependency(dependencyNode, 'Node', Boolean(state.checks?.node_js_runtime), state.node_version ? `v${state.node_version}` : 'missing');
         renderYouTubeCache(state.cache);
       } catch (error) {
         youtubeReady = false;
         setStatus(youtubeEngine, error.message, 'bad');
         youtubeCacheSummary.textContent = 'Cache status is unavailable.';
         youtubeCacheSummary.className = 'status bad';
+        setDependency(dependencyYtDlp, 'yt-dlp', false, 'unavailable');
+        setDependency(dependencyNode, 'Node', false, 'unavailable');
       }
       try {
         const state = await json('/api/video/status');
         localVideoReady = Boolean(state.ready);
+        const localFfmpegReady = Boolean(state.checks?.ffmpeg);
+        const localFfprobeReady = Boolean(state.checks?.ffprobe);
         setStatus(
           localVideoEngine,
           state.ready
@@ -868,9 +1269,15 @@
             : 'Local video pipeline installation is incomplete',
           state.ready ? 'ok' : 'bad'
         );
+        setIndicator(headerMedia, state.ready ? 'ffmpeg ready' : 'ffmpeg incomplete', state.ready ? 'ready' : 'bad');
+        setDependency(dependencyFfmpeg, 'FFmpeg', localFfmpegReady, localFfmpegReady ? 'ready' : 'missing');
+        setDependency(dependencyFfprobe, 'FFprobe', localFfprobeReady, localFfprobeReady ? 'ready' : 'missing');
       } catch (error) {
         localVideoReady = false;
         setStatus(localVideoEngine, error.message, 'bad');
+        setIndicator(headerMedia, 'ffmpeg unavailable', 'bad');
+        setDependency(dependencyFfmpeg, 'FFmpeg', false, 'unavailable');
+        setDependency(dependencyFfprobe, 'FFprobe', false, 'unavailable');
       }
       updateActions();
       const previousVideoJob = localStorage.getItem('voicebox-sts-latest-video-job');
@@ -1004,9 +1411,14 @@
       try {
         const body = await json('/api/engine/probe', { method: 'POST' });
         setStatus(probeSummary, body.device ? `Probe complete on ${body.device}.` : 'CUDA probe completed successfully.', 'ok');
+        engineCardBadge.textContent = body.device ? `${body.device} loaded` : 'model loaded';
+        engineCardBadge.className = 'stage-tag mini-badge ok';
+        engineRuntime.textContent = body.cuda_device_name || body.device || engineRuntime.textContent;
         showDetails(probeDetails, probeResult, body);
       } catch (error) {
         setStatus(probeSummary, error.message, 'bad');
+        engineCardBadge.textContent = 'probe failed';
+        engineCardBadge.className = 'stage-tag mini-badge bad';
       } finally {
         probeButton.disabled = !engineReady;
       }
@@ -1049,6 +1461,10 @@
       youtubeConvertButton.disabled = true;
       youtubeProgress.hidden = false;
       youtubeProgress.value = 0;
+      videoJobBadge.textContent = 'queued';
+      videoJobBadge.className = 'mini-badge';
+      pipelineStage.textContent = 'Creating YouTube video job';
+      pipelineProgress.value = 0;
       setStatus(youtubeSummary, 'Creating local video conversion job…');
       try {
         const adjustments = adjustmentValues();
@@ -1082,6 +1498,10 @@
       localVideoConvertButton.disabled = true;
       localVideoProgress.hidden = false;
       localVideoProgress.value = 0;
+      videoJobBadge.textContent = 'queued';
+      videoJobBadge.className = 'mini-badge';
+      pipelineStage.textContent = 'Creating imported video job';
+      pipelineProgress.value = 0;
       setStatus(localVideoSummary, 'Creating local video conversion job...');
       try {
         const adjustments = adjustmentValues();
