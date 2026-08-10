@@ -1,0 +1,609 @@
+# VoiceBox STS Sidecar
+
+Local, loopback-only speech-to-speech conversion for [Jamie Pine's VoiceBox](https://github.com/jamiepine/voicebox), powered by a pinned OpenVoice V2 runtime.
+
+VoiceBox STS Sidecar accepts an existing speech recording or an authorized YouTube video, uses a cloned VoiceBox profile as the target voice, and performs voice conversion locally on an NVIDIA GPU. The source performance supplies timing, pacing, emphasis, and emotion; the selected VoiceBox reference supplies the target speaker identity.
+
+The Python package and on-screen application currently use the historical name **VoiceBox STS Bridge**. The GitHub repository is named **Voicebox-STS-Sidecar** because the application runs alongside VoiceBox without modifying it.
+
+> [!IMPORTANT]
+> Use only voices and source media that you own or have permission to process. YouTube jobs require an explicit rights confirmation. This project does not bypass DRM, account restrictions, or access controls.
+
+## Status
+
+This is a working Windows proof of concept with a production-oriented long-video path. It has been validated on an CUDA-capable NVIDIA GPU.
+
+Implemented:
+
+- local VoiceBox health checks and cloned-profile discovery;
+- automatic selection and caching when a profile has one reference sample;
+- browser-native audio file selection and safe project-local uploads;
+- source, target-reference, converted-audio, and completed-video players;
+- full-precision OpenVoice V2 conversion on CUDA;
+- atomic audio job manifests and validated WAV outputs;
+- direct YouTube video downloads through a security-pinned yt-dlp runtime;
+- queued background video jobs with page-refresh recovery;
+- one-model-load batch conversion for long audio;
+- 256-sample-aligned chunks with one-second context overlap and crossfades;
+- exact reconstructed PCM frame-count enforcement;
+- unchanged video-stream remuxing with lossless FLAC audio in Matroska;
+- complete FFmpeg decode validation before a video job is marked complete;
+- responsive desktop/mobile web UI and a one-click Windows launcher.
+
+Not implemented:
+
+- dialogue/background source separation;
+- conversion of only the dialogue stem while retaining an untouched music/effects bed;
+- automatic recovery of an in-progress GPU job after the bridge process itself is terminated;
+- DRM-protected, private, age-restricted, or account-cookie YouTube workflows;
+- a packaged desktop executable or installer;
+- subjective guarantees about voice identity or emotional similarity.
+
+## Why a sidecar?
+
+VoiceBox cloned profiles are not RVC `.pth` models. A profile contains metadata, one or more reference recordings, and their transcripts. VoiceBox's installed Qwen, Chatterbox, LuxTTS, or other weights are shared TTS engines rather than per-speaker speech-to-speech models.
+
+This project therefore treats VoiceBox as an external local service:
+
+1. Query VoiceBox's public loopback REST API.
+2. Select a cloned profile and retrieve its reference WAV.
+3. Extract a target-speaker embedding with OpenVoice V2.
+4. Convert the original performance directly without transcribing it to text.
+5. Save and validate the local result.
+
+VoiceBox is not patched, its SQLite database is not opened, and the Applio installation is not modified.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    UI[Loopback web UI] --> API[FastAPI sidecar]
+    API --> VB[VoiceBox REST API\n127.0.0.1:17493]
+    VB --> REF[Cached reference WAV]
+    API --> OV[Isolated OpenVoice V2 worker\nPython 3.10 + CUDA]
+    FILE[Uploaded audio] --> API
+    YT[Authorized YouTube URL] --> DLP[yt-dlp]
+    DLP --> MEDIA[Downloaded video]
+    MEDIA --> FFMPEG[FFmpeg extraction]
+    FFMPEG --> CHUNKS[Aligned overlapping PCM chunks]
+    REF --> OV
+    CHUNKS --> OV
+    OV --> STITCH[Exact-frame crossfade reconstruction]
+    STITCH --> MUX[FFmpeg stream-copy remux]
+    MEDIA --> MUX
+    MUX --> OUT[Validated WAV or MKV output]
+```
+
+| Component | Responsibility |
+| --- | --- |
+| `VoiceBoxClient` | Health, profiles, samples, and reference downloads through VoiceBox's loopback API |
+| `MediaStore` | UUID-backed audio uploads and traversal-safe media resolution |
+| `OpenVoiceEngine` | Bridge between the main Python environment and isolated CUDA inference worker |
+| `openvoice_worker.py` | Safe model loading, single conversion, and one-load batch conversion |
+| `ConversionService` | Serialized single-file jobs and atomic job manifests |
+| `YouTubeJobService` | URL validation, download, extraction, chunking, conversion, reconstruction, remuxing, and decode validation |
+| FastAPI application | Loopback API, background jobs, byte-range media serving, and web UI |
+
+## Quality and timing model
+
+### What is preserved
+
+- The original video stream is copied with FFmpeg's `-c:v copy`; it is not re-encoded.
+- Extracted, chunked, and reconstructed audio remains uncompressed 16-bit PCM.
+- The final master uses lossless FLAC audio inside an MKV container.
+- OpenVoice runs in FP32. The bridge does not use half-precision inference as a speed shortcut.
+- Long-form chunk boundaries are multiples of OpenVoice's 256-sample frame size.
+- Each chunk includes approximately one second of context on either side.
+- Adjacent converted chunks are crossfaded over the shared context.
+- The reconstructed WAV must contain exactly the same number of PCM frames as the duration-bounded extracted WAV.
+- The final output timeline must be within 50 milliseconds of the probed video timeline.
+- FFmpeg fully decodes the output video and audio streams before completion is reported.
+
+### Model-imposed limit
+
+OpenVoice V2 natively converts at **22.05 kHz mono**. The bridge does not downsample below that or use a performance-oriented quality mode, but it cannot recover stereo or frequencies that the model itself does not produce. Upsampling the result would increase file size without restoring information.
+
+### Current soundtrack limitation
+
+The YouTube path converts the complete soundtrack. If the source contains music, ambience, or effects, OpenVoice receives those elements too. Clean, dialogue-forward source videos work best. Preserving a high-fidelity stereo background bed requires a separately reviewed local source-separation model and is intentionally left for future work.
+
+## Requirements
+
+### Application host
+
+- Windows 10 or Windows 11
+- Jamie Pine's VoiceBox installed and available at `http://127.0.0.1:17493`
+- Python 3.11, 3.12, or 3.13 for the FastAPI bridge
+- Git
+- FFmpeg and FFprobe on `PATH`
+- Node.js 22 or newer for yt-dlp's current YouTube JavaScript runtime
+- Miniconda or another Conda-compatible installation for the isolated Python 3.10 inference prefix
+
+### Inference hardware
+
+- NVIDIA CUDA-capable GPU recommended
+- VRAM requirements depend on workload
+- Current implementation defaults to `cuda:0`
+- CPU mode exists at the engine layer but is not exposed as the normal web workflow and will be much slower
+
+### Disk and downloads
+
+The repository intentionally excludes virtual environments, upstream source, model weights, cached references, uploads, downloads, and generated outputs.
+
+One-time setup downloads include:
+
+- CUDA-enabled PyTorch and its dependencies, which require several gigabytes of local disk;
+- OpenVoice source at a pinned Git revision;
+- the OpenVoice V2 converter checkpoint: **131,320,490 bytes** (about 131 MB), MIT licensed.
+
+Review these downloads and their licenses before installing them on another machine. Exact provenance is recorded in [`config/openvoice-v2.provenance.json`](config/openvoice-v2.provenance.json).
+
+## Quick start on the configured workstation
+
+If the bridge and inference environments already exist:
+
+1. Start VoiceBox.
+2. Double-click [`start-bridge.bat`](start-bridge.bat).
+3. The launcher checks the local dependencies, reuses an existing bridge when possible, starts VoiceBox when necessary, launches the sidecar on `127.0.0.1:8765`, and opens the browser.
+4. Closing the bridge console stops the sidecar service.
+
+Run a non-launching preflight from PowerShell:
+
+```powershell
+cmd /c start-bridge.bat --check
+```
+
+Open the UI directly at <http://127.0.0.1:8765>.
+
+## Complete installation from a fresh clone
+
+The commands below are intended for PowerShell from the repository root.
+
+### 1. Install and verify system tools
+
+```powershell
+git --version
+python --version
+conda --version
+ffmpeg -version
+ffprobe -version
+node --version
+```
+
+Node must be version 22 or newer. Confirm VoiceBox is running:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:17493/health
+```
+
+### 2. Create the bridge environment
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+This installs FastAPI, Uvicorn, pytest, and a patched yt-dlp release. The project requires yt-dlp `2026.7.4` or newer within the 2026 release series because earlier builds are below the configured security floor.
+
+### 3. Create the isolated OpenVoice environment
+
+```powershell
+conda create --prefix ".\.envs\openvoice-v2" python=3.10.20 pip -y
+```
+
+Install the pinned CUDA 12.4 PyTorch build first:
+
+```powershell
+.\.envs\openvoice-v2\python.exe -m pip install --index-url https://download.pytorch.org/whl/cu124 torch==2.4.1
+```
+
+Install only the direct converter dependencies. Do not install OpenVoice's full historical requirements file; it pulls unrelated demos, transcription stacks, and cloud-facing packages.
+
+```powershell
+.\.envs\openvoice-v2\python.exe -m pip install `
+  numpy==1.26.4 `
+  librosa==0.10.2.post1 `
+  soundfile==0.12.1 `
+  inflect==7.0.0 `
+  Unidecode==1.3.7 `
+  eng_to_ipa==0.0.2 `
+  pypinyin==0.50.0 `
+  jieba==0.42.1 `
+  cn2an==0.5.22
+```
+
+The audited versions are also listed in [`config/openvoice-v2.direct-requirements.txt`](config/openvoice-v2.direct-requirements.txt).
+
+### 4. Check out the pinned OpenVoice source
+
+```powershell
+git clone https://github.com/myshell-ai/OpenVoice third_party/OpenVoice
+git -C third_party/OpenVoice checkout 74a1d147b17a8c3092dd5430504bd83ef6c7eb23
+git -C third_party/OpenVoice rev-parse HEAD
+```
+
+The final command must print:
+
+```text
+74a1d147b17a8c3092dd5430504bd83ef6c7eb23
+```
+
+The source is imported directly from `third_party/OpenVoice`; it does not need to be installed as a package.
+
+### 5. Download and verify the OpenVoice V2 converter
+
+The approved checkpoint is approximately 131 MB and MIT licensed.
+
+```powershell
+$modelRevision = "f36e7edfe1684461a8343844af60babc2efbb727"
+$modelBase = "https://huggingface.co/myshell-ai/OpenVoiceV2/resolve/$modelRevision/converter"
+$modelDirectory = "data\models\openvoice-v2\converter"
+New-Item -ItemType Directory -Path $modelDirectory -Force | Out-Null
+Invoke-WebRequest -Uri "$modelBase/config.json?download=true" -OutFile "$modelDirectory\config.json"
+Invoke-WebRequest -Uri "$modelBase/checkpoint.pth?download=true" -OutFile "$modelDirectory\checkpoint.pth"
+(Get-FileHash "$modelDirectory\checkpoint.pth" -Algorithm SHA256).Hash.ToLower()
+```
+
+The expected SHA-256 is:
+
+```text
+9652c27e92b6b2a91632590ac9962ef7ae2b712e5c5b7f4c34ec55ee2b37ab9e
+```
+
+Do not continue if the hash differs.
+
+### 6. Verify the runtime
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m voicebox_sts_bridge engine-status
+.\.venv\Scripts\python.exe -m voicebox_sts_bridge engine-probe
+cmd /c start-bridge.bat --check
+```
+
+`engine-status` checks files and imports without loading the model. `engine-probe` performs a real CUDA model load and reports device and peak-memory information.
+
+### 7. Launch
+
+```powershell
+cmd /c start-bridge.bat
+```
+
+## Using the web UI
+
+### Choose a target voice
+
+1. Select a cloned VoiceBox profile.
+2. If the profile contains one reference, the sidecar selects and caches it automatically.
+3. If it contains multiple references, choose the cleanest representative recording.
+4. Use **Audition selected reference** to hear the cached target.
+
+A clean 15–30 second single-speaker reference is generally more useful than a longer noisy recording. The currently validated VoiceBox samples are approximately 24–29 seconds.
+
+### Convert a local audio file
+
+1. Click **Choose source audio…** to open the Windows file picker.
+2. Choose an authorized `.wav`, `.mp3`, `.flac`, `.m4a`, `.aac`, `.ogg`, `.opus`, or `.wma` file.
+3. Audition the uploaded source in the right-hand player.
+4. Click **Convert with selected profile**.
+5. After completion, audition the result and expand the job details if needed.
+
+Uploads are streamed to UUID-named files under `data/inputs/`. The default upload safety limit is 1 GiB.
+
+### Convert a YouTube video
+
+1. Select the target VoiceBox profile.
+2. Paste a direct HTTPS YouTube video URL. Watch, Shorts, Live-video, Embed, and `youtu.be` links are accepted when they identify one video.
+3. Confirm that you own the video or have permission to process it.
+4. Click **Download and convert video**.
+5. Leave the bridge console running. The page displays the current download, extraction, conversion, reconstruction, remux, and validation stages.
+6. A page refresh reconnects to the latest job stored in browser local storage.
+7. When complete, use the right-hand video player or save the MKV master.
+
+The URL validator rejects arbitrary hosts, HTTP URLs, credentials, custom ports, playlists without a direct video, channels, and search pages. yt-dlp is configured for one item and ignores user-level yt-dlp configuration files.
+
+## Long-video pipeline
+
+Each YouTube job passes through these durable stages:
+
+1. **Queued** — an atomic manifest is created under `data/video_jobs/JOB_ID/`.
+2. **Downloading** — yt-dlp downloads the best available video/audio combination and merges it locally.
+3. **Extracting audio** — FFmpeg bounds the extraction to the probed video timeline and creates 22.05 kHz mono PCM.
+4. **Preparing chunks** — approximately 30-second cores receive one-second left/right context; all inference inputs are padded to multiples of 256 samples.
+5. **Converting chunks** — one isolated worker loads the OpenVoice model and target embedding once, then converts every chunk sequentially on the GPU.
+6. **Reconstructing** — overlapping converted regions are linearly crossfaded and cropped to the exact source frame count.
+7. **Remuxing** — FFmpeg copies the original video stream and adds lossless FLAC audio in MKV.
+8. **Validating** — FFprobe verifies codecs and duration; FFmpeg decodes both streams with error-on-failure behavior.
+9. **Completed** — the final media route becomes available only after every check passes.
+
+GPU jobs share one lock, so local-file and YouTube conversions cannot compete for VRAM.
+
+## CLI reference
+
+Set the source tree on `PYTHONPATH` when the editable package is not active:
+
+```powershell
+$env:PYTHONPATH = "src"
+```
+
+```powershell
+python -m voicebox_sts_bridge health
+python -m voicebox_sts_bridge profiles
+python -m voicebox_sts_bridge samples PROFILE_ID
+python -m voicebox_sts_bridge fetch-reference PROFILE_ID SAMPLE_ID
+python -m voicebox_sts_bridge engine-status
+python -m voicebox_sts_bridge engine-probe
+python -m voicebox_sts_bridge convert SOURCE_AUDIO PROFILE_ID SAMPLE_ID
+python -m voicebox_sts_bridge convert SOURCE_AUDIO PROFILE_ID SAMPLE_ID --output OUTPUT.wav --tau 0.3
+python -m voicebox_sts_bridge serve --host 127.0.0.1 --port 8765
+```
+
+The YouTube workflow is intentionally web/API based because it is asynchronous and exposes stage/chunk progress.
+
+## HTTP API
+
+Interactive OpenAPI documentation is available at <http://127.0.0.1:8765/docs> while the bridge is running.
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/voicebox/health` | Proxy the local VoiceBox health response |
+| `GET` | `/api/profiles` | List VoiceBox profiles |
+| `GET` | `/api/profiles/{profile_id}/samples` | List samples for one profile |
+| `POST` | `/api/references` | Cache and validate one reference WAV |
+| `GET` | `/api/engine/status` | Check isolated engine readiness without loading the model |
+| `POST` | `/api/engine/probe` | Load the model and probe CUDA |
+| `POST` | `/api/inputs?filename=...` | Stream a raw browser-selected audio file into local storage |
+| `POST` | `/api/conversions` | Run one synchronous local-audio conversion |
+| `GET` | `/api/youtube/status` | Check yt-dlp, Node, FFmpeg, and FFprobe readiness |
+| `POST` | `/api/youtube/jobs` | Create an authorized asynchronous video job |
+| `GET` | `/api/youtube/jobs/{job_id}` | Read durable job status and chunk progress |
+| `GET` | `/api/media/inputs/{input_id}` | Stream an uploaded source with byte-range support |
+| `GET` | `/api/media/outputs/{job_id}` | Stream a converted WAV |
+| `GET` | `/api/media/references/{profile_id}/{sample_id}` | Stream a cached VoiceBox reference |
+| `GET` | `/api/media/video-jobs/{job_id}` | Stream or save a completed MKV master |
+
+### Example video-job request
+
+```json
+{
+  "youtube_url": "https://www.youtube.com/watch?v=VIDEO_ID",
+  "profile_id": "VOICEBOX_PROFILE_UUID",
+  "sample_id": "VOICEBOX_SAMPLE_UUID",
+  "tau": 0.3,
+  "authorized": true
+}
+```
+
+## Configuration
+
+| Environment variable | Default | Description |
+| --- | --- | --- |
+| `VOICEBOX_BASE_URL` | `http://127.0.0.1:17493` | VoiceBox REST API; must be an HTTP loopback URL |
+| `BRIDGE_HOST` | `127.0.0.1` | Sidecar bind address; must resolve to loopback |
+| `BRIDGE_PORT` | `8765` | Sidecar HTTP port |
+| `BRIDGE_DATA_DIR` | `data` | Root for models, caches, inputs, manifests, and outputs |
+
+Non-loopback VoiceBox URLs and bridge hosts are rejected by configuration validation.
+
+## Runtime data layout
+
+Runtime artifacts stay local and are excluded from Git.
+
+```text
+data/
+├── inputs/                         # Browser-uploaded audio + JSON metadata
+├── jobs/                           # Single-audio atomic job manifests
+├── models/openvoice-v2/converter/  # Hash-verified config and checkpoint
+├── outputs/                        # Converted WAV files
+├── references/PROFILE_ID/          # Cached VoiceBox WAV/JSON references
+└── video_jobs/JOB_ID/
+    ├── manifest.json               # Durable job state
+    ├── conversion-progress.json    # Worker-side chunk progress
+    ├── download/                    # Downloaded source video
+    ├── audio/                       # Extracted and reconstructed PCM WAVs
+    ├── chunks/source/               # Context-overlapped inference inputs
+    ├── chunks/converted/            # Converted chunks
+    └── output.mkv                   # Copied video + lossless FLAC master
+```
+
+These intermediate files are intentionally retained for debugging, quality review, and future recovery work. Long videos can require substantial disk space.
+
+## Repository layout
+
+```text
+config/                              # Pinned dependency and model provenance
+docs/                                # Engine audit and reference CUDA hardware benchmark notes
+src/voicebox_sts_bridge/             # Application package
+src/voicebox_sts_bridge/static/      # Single-page web UI
+tests/                               # Unit and pipeline tests
+AGENTS.md                            # Project architecture and operating constraints
+pyproject.toml                       # Package metadata and dependencies
+start-bridge.bat                     # Windows launcher/preflight
+```
+
+The following large or machine-specific folders are deliberately ignored:
+
+```text
+.venv/
+.envs/
+.cache/
+third_party/
+data/*
+output/
+```
+
+## Development and tests
+
+Install development dependencies:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+Run the test suite:
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m pytest
+```
+
+Compile-check the Python sources:
+
+```powershell
+.\.venv\Scripts\python.exe -m compileall -q src tests
+```
+
+Check the inline browser JavaScript:
+
+```powershell
+$html = Get-Content -Raw -Encoding UTF8 src\voicebox_sts_bridge\static\index.html
+$script = [regex]::Match($html, '<script>([\s\S]*?)</script>').Groups[1].Value
+$script | node --check
+```
+
+Current suite status: **44 tests passing**.
+
+## Security and privacy
+
+- The bridge binds only to loopback and rejects non-loopback configuration.
+- VoiceBox is accessed only through its public local REST API.
+- OpenVoice inference runs locally with Hugging Face, Datasets, and Transformers offline flags forced in the worker.
+- OpenVoice model loading uses `torch.load(..., weights_only=True)` and validates missing/unexpected state keys.
+- The upstream watermark dependency is not loaded; the audited converter subclass disables watermark processing.
+- Browser uploads are streamed atomically, use UUID filenames, enforce an extension allowlist, and are capped at 1 GiB.
+- Media routes accept validated UUIDs and enforce directory containment.
+- Responses use byte-range support, `Cache-Control: no-store`, and `X-Content-Type-Options: nosniff`.
+- YouTube URLs are restricted to direct HTTPS YouTube hosts and one-video paths.
+- yt-dlp user configuration is ignored, playlists are disabled, and the project refuses yt-dlp versions below the configured security floor.
+- No cloud inference API, paid service, subscription, or per-minute dependency is used.
+- A YouTube download necessarily contacts YouTube; inference and generated media remain local.
+
+Do not expose this prototype to a LAN or the public internet without a separate authentication, CSRF, rate-limit, and threat-model review.
+
+## Benchmarks
+
+Reference validation environment:
+
+- GPU: CUDA-capable NVIDIA GPU
+- Driver: <redacted-driver-version>
+- Python: 3.10.20 inference prefix
+- PyTorch: 2.4.1+cu124
+- OpenVoice source: `74a1d147b17a8c3092dd5430504bd83ef6c7eb23`
+- OpenVoice model revision: `f36e7edfe1684461a8343844af60babc2efbb727`
+
+| Check | Result |
+| --- | --- |
+| Model-load probe | validated |
+| Representative source conversion | validated; output fully decoded |
+| Two-chunk one-load CUDA batch | validated |
+| Three-chunk FFmpeg integration | 463,517 source frames = 463,517 reconstructed frames |
+| Video remux validation | Video codec copied, FLAC audio confirmed, full decode passed |
+
+The first full conversion preserved 99.76% of its unaligned source duration. The long-video implementation eliminates cumulative chunk drift by aligning and padding inference inputs, then enforcing the exact extracted frame count during reconstruction.
+
+Detailed measurements are in [`docs/benchmark.md`](docs/benchmark.md).
+
+## Troubleshooting
+
+### VoiceBox shows unavailable
+
+- Start VoiceBox and confirm <http://127.0.0.1:17493/health> responds.
+- Confirm no firewall or proxy is intercepting loopback HTTP.
+- Verify `VOICEBOX_BASE_URL` has no credentials, query string, or fragment.
+
+### Engine status says installation incomplete
+
+Check all of these paths:
+
+```text
+.envs/openvoice-v2/python.exe
+third_party/OpenVoice/
+data/models/openvoice-v2/converter/config.json
+data/models/openvoice-v2/converter/checkpoint.pth
+```
+
+Then run:
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m voicebox_sts_bridge engine-status
+```
+
+### CUDA probe fails
+
+- Confirm the isolated environment contains `torch==2.4.1+cu124`, not a CPU-only build.
+- Run `nvidia-smi` and confirm the NVIDIA driver detects the GPU.
+- Do not install the ML packages into the main Python 3.13 bridge environment.
+
+### YouTube tools are not ready
+
+```powershell
+.\.venv\Scripts\python.exe -m pip show yt-dlp
+node --version
+ffmpeg -version
+ffprobe -version
+```
+
+The app requires yt-dlp 2026.7.4 or newer within the 2026 series and Node 22 or newer.
+
+### A YouTube download fails
+
+- Confirm the URL identifies one public video and begins with `https://`.
+- Playlists, channels, search pages, custom ports, arbitrary hosts, and HTTP URLs are rejected.
+- Private, age-restricted, region-restricted, DRM-protected, or login-required content is outside the supported workflow.
+- Inspect `data/video_jobs/JOB_ID/manifest.json` for the exact failed stage and diagnostic.
+
+### The completed MKV does not play in the browser
+
+The sidecar copies the best downloaded video codec without re-encoding. Browser Matroska/codec support varies. Use the **Open or save the MKV master** link and play it in VLC. The file is still fully decoded by FFmpeg before completion is reported.
+
+### A long job stops when the console closes
+
+Page refreshes are supported, but the bridge process must remain running. Closing the console terminates the active background task. Intermediates and manifests remain on disk for diagnosis; automatic process-restart recovery is not implemented yet.
+
+### Port 8765 is already in use
+
+Use a different loopback port:
+
+```powershell
+$env:BRIDGE_PORT = "8877"
+.\.venv\Scripts\python.exe -m voicebox_sts_bridge serve
+```
+
+## Dependency and license notes
+
+- OpenVoice source and the audited OpenVoice V2 converter model are MIT licensed.
+- yt-dlp is installed as a Python dependency and retains its upstream license.
+- FFmpeg licensing depends on the distributed build and enabled codecs; this repository does not redistribute FFmpeg.
+- CUDA-enabled PyTorch retains its upstream license and is not committed to this repository.
+- Seed-VC is not bundled. Its GPL-3.0 licensing and archived upstream status are documented in [`docs/engine-audit.md`](docs/engine-audit.md).
+- This repository does not currently declare a license for the sidecar's own source. Because the GitHub repository is private, no permission to redistribute should be inferred.
+
+## Roadmap
+
+- local dialogue/music/effects separation after model-size, license, quality, and VRAM review;
+- convert only dialogue and remix it into the untouched original stereo bed;
+- resumable job execution after bridge restarts;
+- cancellation and queue management;
+- silence-aware chunk-boundary selection in addition to overlap context;
+- batch URL processing;
+- packaged Windows desktop application;
+- formal listening scorecards across multiple voices and source styles.
+
+## Project records
+
+- [`AGENTS.md`](AGENTS.md) — architecture decisions, constraints, and project memory
+- [`docs/engine-audit.md`](docs/engine-audit.md) — engine selection, dependency, model-size, and license audit
+- [`docs/benchmark.md`](docs/benchmark.md) — reference CUDA hardware measurements and validation results
+- [`config/openvoice-v2.provenance.json`](config/openvoice-v2.provenance.json) — immutable source/model provenance and checkpoint hash
+- [`config/openvoice-v2.direct-requirements.txt`](config/openvoice-v2.direct-requirements.txt) — minimal isolated-runtime packages
+
+## Acknowledgments
+
+- [Jamie Pine / VoiceBox](https://github.com/jamiepine/voicebox)
+- [MyShell AI / OpenVoice](https://github.com/myshell-ai/OpenVoice)
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+- [FFmpeg](https://ffmpeg.org/)
+
+This is an independent sidecar project and is not an official VoiceBox component.

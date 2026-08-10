@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232fb978'/%3E%3Cpath d='M18 18h10v28H18zm18 7h10v14H36z' fill='%23090d14'/%3E%3C/svg%3E">
+  <title>VoiceBox STS Bridge</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #090d14;
+      color: #eef3f8;
+      --panel: #121923;
+      --panel-strong: #17202c;
+      --border: #293646;
+      --muted: #93a4b8;
+      --accent: #55d393;
+      --accent-strong: #2fb978;
+      --danger: #ff7b72;
+      --focus: #7dd3fc;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 15% 0, #132332 0, #090d14 38rem); }
+    button, select, input { font: inherit; }
+    button, select, input[type="url"] { min-height: 44px; }
+    button:focus-visible, select:focus-visible, input:focus-visible, audio:focus-visible, video:focus-visible, summary:focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
+      outline-offset: 2px;
+    }
+
+    .shell { width: min(1180px, calc(100% - 2rem)); margin: 0 auto; padding: 2.5rem 0 4rem; }
+    header { margin-bottom: 1.75rem; }
+    h1 { margin: 0; font-size: clamp(1.9rem, 4vw, 2.75rem); letter-spacing: -.04em; }
+    h2 { margin: 0; font-size: 1.08rem; }
+    p { line-height: 1.55; }
+    .lede { max-width: 720px; margin: .5rem 0 0; color: var(--muted); }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 1.25rem; align-items: start; }
+    .controls { display: grid; gap: 1rem; }
+    .card { padding: 1.25rem; background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 18px 50px rgb(0 0 0 / 16%); }
+    .player { position: sticky; top: 1rem; display: grid; gap: 1rem; }
+    .player-card { background: linear-gradient(160deg, var(--panel-strong), var(--panel)); }
+    .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .25rem; }
+    .eyebrow { margin: 0 0 .35rem; color: var(--accent); font-size: .75rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .muted, .status { color: var(--muted); }
+    .status { margin: .7rem 0 0; min-height: 1.5em; font-size: .92rem; }
+    .status.ok, .ok { color: var(--accent); }
+    .status.bad, .bad { color: var(--danger); }
+    label { display: block; margin: 1rem 0 .45rem; font-size: .9rem; font-weight: 700; }
+    select {
+      width: 100%; padding: .7rem .8rem; border: 1px solid #3a4a5e; border-radius: 10px;
+      background: #0b1119; color: inherit;
+    }
+    input[type="url"] {
+      width: 100%; padding: .7rem .8rem; border: 1px solid #3a4a5e; border-radius: 10px;
+      background: #0b1119; color: inherit;
+    }
+    button {
+      border: 1px solid var(--accent-strong); border-radius: 10px; padding: .7rem 1rem;
+      background: var(--accent-strong); color: #04120b; cursor: pointer; font-weight: 800;
+      transition: transform .12s ease, background .12s ease, border-color .12s ease;
+    }
+    button:hover:not(:disabled) { transform: translateY(-1px); background: var(--accent); border-color: var(--accent); }
+    button:disabled { opacity: .42; cursor: not-allowed; }
+    button.secondary { background: #1a2633; border-color: #3a4a5e; color: #e8f0f7; }
+    button.secondary:hover:not(:disabled) { background: #243548; border-color: #526981; }
+    .action-row { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; }
+    .action-row button { flex: 1 1 190px; }
+    .file-picker { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .8rem; margin-top: .8rem; }
+    .file-picker button { white-space: nowrap; }
+    .file-name { min-width: 0; color: var(--muted); font-size: .9rem; overflow-wrap: anywhere; }
+    details { margin-top: .8rem; border-top: 1px solid var(--border); padding-top: .7rem; }
+    summary { color: var(--muted); cursor: pointer; font-size: .85rem; }
+    pre { margin: .65rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #b9ddff; font: .78rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .now-playing { margin: .5rem 0 1rem; color: #dfe9f3; font-weight: 700; overflow-wrap: anywhere; }
+    audio { display: block; width: 100%; margin-bottom: .95rem; accent-color: var(--accent-strong); }
+    .audition-list { display: grid; gap: .6rem; }
+    .audition-list button { width: 100%; text-align: left; }
+    .player-note { margin: 1rem 0 0; color: var(--muted); font-size: .84rem; }
+    .checkbox-row { display: flex; align-items: flex-start; gap: .65rem; margin-top: 1rem; color: var(--muted); font-size: .88rem; line-height: 1.45; }
+    .checkbox-row input { width: 1.1rem; height: 1.1rem; margin-top: .15rem; accent-color: var(--accent-strong); flex: 0 0 auto; }
+    .checkbox-row label { margin: 0; font-weight: 500; }
+    progress { width: 100%; height: .75rem; margin-top: 1rem; accent-color: var(--accent-strong); }
+    video { display: block; width: 100%; max-height: 260px; margin-top: 1rem; border-radius: 10px; background: #05080d; }
+    .download-link { display: block; margin-top: .8rem; padding: .7rem 1rem; border: 1px solid var(--accent-strong); border-radius: 10px; color: var(--accent); text-align: center; text-decoration: none; font-weight: 800; }
+    [hidden] { display: none !important; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+    @media (max-width: 820px) {
+      .shell { padding-top: 1.5rem; }
+      .layout { grid-template-columns: 1fr; }
+      .player { position: static; }
+      .player { order: 2; }
+    }
+    @media (max-width: 520px) {
+      .shell { width: min(100% - 1rem, 1180px); }
+      .card { padding: 1rem; border-radius: 13px; }
+      .file-picker { grid-template-columns: 1fr; }
+      .file-picker button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">Fully local voice conversion</p>
+      <h1>VoiceBox STS Bridge</h1>
+      <p class="lede">Convert an authorized recording to a selected VoiceBox voice while keeping its original delivery. Audio stays on this computer.</p>
+    </header>
+
+    <div class="layout">
+      <div class="controls">
+        <section class="card" aria-labelledby="voice-heading">
+          <div class="section-heading">
+            <h2 id="voice-heading">1. Choose a target voice</h2>
+          </div>
+          <p id="health" class="status" role="status" aria-live="polite">Checking VoiceBox…</p>
+
+          <label for="profile">Cloned profile</label>
+          <select id="profile" disabled><option value="">Loading profiles…</option></select>
+
+          <label for="sample">Reference sample</label>
+          <select id="sample" disabled><option value="">Select a profile first</option></select>
+
+          <div class="action-row">
+            <button id="fetch" type="button" class="secondary" disabled>Cache selected reference WAV</button>
+          </div>
+          <p id="reference-summary" class="status" role="status" aria-live="polite"></p>
+          <details id="reference-details" hidden>
+            <summary>Reference details</summary>
+            <pre id="result"></pre>
+          </details>
+        </section>
+
+        <section class="card" aria-labelledby="engine-heading">
+          <h2 id="engine-heading">2. Check the conversion engine</h2>
+          <p id="engine" class="status" role="status" aria-live="polite">Checking isolated engine…</p>
+          <div class="action-row">
+            <button id="probe" type="button" class="secondary" disabled>Load model and probe CUDA</button>
+          </div>
+          <p id="probe-summary" class="status" role="status" aria-live="polite"></p>
+          <details id="probe-details" hidden>
+            <summary>Probe details</summary>
+            <pre id="probe-result"></pre>
+          </details>
+        </section>
+
+        <section class="card" aria-labelledby="source-heading">
+          <h2 id="source-heading">3. Upload source audio</h2>
+          <p class="muted">Choose a recording you own or have permission to convert. A short 30–60 second WAV is best for the first test.</p>
+          <label for="source" class="sr-only">Authorized source audio file</label>
+          <input id="source" type="file" accept=".wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.wma" hidden>
+          <div class="file-picker">
+            <button id="choose-source" type="button">Choose source audio…</button>
+            <span id="source-name" class="file-name">No file selected</span>
+          </div>
+          <p id="upload-status" class="status" role="status" aria-live="polite"></p>
+          <details id="upload-details" hidden>
+            <summary>Upload details</summary>
+            <pre id="upload-result"></pre>
+          </details>
+        </section>
+
+        <section class="card" aria-labelledby="convert-heading">
+          <h2 id="convert-heading">4. Convert locally</h2>
+          <p class="muted">Conversion becomes available after the engine, source audio, profile, and reference sample are ready.</p>
+          <div class="action-row">
+            <button id="convert" type="button" disabled>Convert with selected profile</button>
+          </div>
+          <p id="conversion-summary" class="status" role="status" aria-live="polite"></p>
+          <details id="conversion-details" hidden>
+            <summary>Conversion details</summary>
+            <pre id="conversion-result"></pre>
+          </details>
+        </section>
+
+        <section class="card" aria-labelledby="youtube-heading">
+          <p class="eyebrow">Long-form production</p>
+          <h2 id="youtube-heading">5. Convert a YouTube video</h2>
+          <p class="muted">Downloads one authorized video, converts its soundtrack in overlapping lossless chunks, and remuxes the exact-length result without re-encoding the video.</p>
+          <p id="youtube-engine" class="status" role="status" aria-live="polite">Checking YouTube tools…</p>
+          <label for="youtube-url">YouTube video URL</label>
+          <input id="youtube-url" type="url" inputmode="url" autocomplete="url" placeholder="https://www.youtube.com/watch?v=…">
+          <div class="checkbox-row">
+            <input id="youtube-authorized" type="checkbox">
+            <label for="youtube-authorized">I own this video or have permission to download and convert it.</label>
+          </div>
+          <div class="action-row">
+            <button id="youtube-convert" type="button" disabled>Download and convert video</button>
+          </div>
+          <progress id="youtube-progress" max="100" value="0" hidden></progress>
+          <p id="youtube-summary" class="status" role="status" aria-live="polite"></p>
+          <details id="youtube-details" hidden>
+            <summary>Video job details</summary>
+            <pre id="youtube-result"></pre>
+          </details>
+        </section>
+      </div>
+
+      <aside class="player" aria-labelledby="player-heading">
+        <section class="card player-card">
+          <p class="eyebrow">Audition</p>
+          <h2 id="player-heading">Audio player</h2>
+          <p id="player-label" class="now-playing" aria-live="polite">Nothing loaded</p>
+          <audio id="audio-player" controls preload="metadata">
+            Your browser does not support audio playback.
+          </audio>
+          <div class="audition-list" aria-label="Choose audio to audition">
+            <button id="audition-source" type="button" class="secondary" disabled>Audition uploaded source</button>
+            <button id="audition-reference" type="button" class="secondary" disabled>Audition selected reference</button>
+            <button id="audition-output" type="button" class="secondary" disabled>Audition latest output</button>
+          </div>
+          <p id="player-status" class="player-note" role="status" aria-live="polite">Upload a source or choose a reference to begin.</p>
+        </section>
+        <section class="card player-card" aria-labelledby="video-player-heading">
+          <p class="eyebrow">Lossless master</p>
+          <h2 id="video-player-heading">Finished video</h2>
+          <p id="video-player-label" class="now-playing" aria-live="polite">No video job completed</p>
+          <video id="video-player" controls preload="metadata" hidden>
+            Your browser does not support video playback.
+          </video>
+          <a id="video-download" class="download-link" href="#" download hidden>Open or save the MKV master</a>
+          <p class="player-note">The master keeps the downloaded video stream unchanged and stores the converted audio as lossless FLAC. Browser playback depends on the original YouTube video codec; the file remains playable in VLC.</p>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    const health = document.querySelector('#health');
+    const profile = document.querySelector('#profile');
+    const sample = document.querySelector('#sample');
+    const fetchButton = document.querySelector('#fetch');
+    const referenceSummary = document.querySelector('#reference-summary');
+    const referenceDetails = document.querySelector('#reference-details');
+    const result = document.querySelector('#result');
+    const engine = document.querySelector('#engine');
+    const probeButton = document.querySelector('#probe');
+    const probeSummary = document.querySelector('#probe-summary');
+    const probeDetails = document.querySelector('#probe-details');
+    const probeResult = document.querySelector('#probe-result');
+    const source = document.querySelector('#source');
+    const chooseSourceButton = document.querySelector('#choose-source');
+    const sourceName = document.querySelector('#source-name');
+    const uploadStatus = document.querySelector('#upload-status');
+    const uploadDetails = document.querySelector('#upload-details');
+    const uploadResult = document.querySelector('#upload-result');
+    const convertButton = document.querySelector('#convert');
+    const conversionSummary = document.querySelector('#conversion-summary');
+    const conversionDetails = document.querySelector('#conversion-details');
+    const conversionResult = document.querySelector('#conversion-result');
+    const audioPlayer = document.querySelector('#audio-player');
+    const playerLabel = document.querySelector('#player-label');
+    const playerStatus = document.querySelector('#player-status');
+    const auditionSourceButton = document.querySelector('#audition-source');
+    const auditionReferenceButton = document.querySelector('#audition-reference');
+    const auditionOutputButton = document.querySelector('#audition-output');
+    const youtubeEngine = document.querySelector('#youtube-engine');
+    const youtubeUrl = document.querySelector('#youtube-url');
+    const youtubeAuthorized = document.querySelector('#youtube-authorized');
+    const youtubeConvertButton = document.querySelector('#youtube-convert');
+    const youtubeProgress = document.querySelector('#youtube-progress');
+    const youtubeSummary = document.querySelector('#youtube-summary');
+    const youtubeDetails = document.querySelector('#youtube-details');
+    const youtubeResult = document.querySelector('#youtube-result');
+    const videoPlayer = document.querySelector('#video-player');
+    const videoPlayerLabel = document.querySelector('#video-player-label');
+    const videoDownload = document.querySelector('#video-download');
+
+    let engineReady = false;
+    let youtubeReady = false;
+    let uploadedInput = null;
+    let latestOutput = null;
+    let sampleLoadToken = 0;
+    let referenceLoadToken = 0;
+    let videoPollTimer = null;
+    let activeVideoJob = null;
+
+    async function json(url, options) {
+      const response = await fetch(url, options);
+      const text = await response.text();
+      let body = {};
+      if (text) {
+        try { body = JSON.parse(text); }
+        catch { body = { detail: text }; }
+      }
+      if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+      return body;
+    }
+
+    function option(value, label) {
+      const item = document.createElement('option');
+      item.value = value;
+      item.textContent = label;
+      return item;
+    }
+
+    function setStatus(element, message, state = '') {
+      element.textContent = message;
+      element.className = `status${state ? ` ${state}` : ''}`;
+    }
+
+    function showDetails(container, output, value) {
+      output.textContent = JSON.stringify(value, null, 2);
+      container.hidden = false;
+    }
+
+    function selectedText(select) {
+      return select.selectedOptions[0]?.textContent || '';
+    }
+
+    function updateActions() {
+      convertButton.disabled = !(engineReady && uploadedInput?.input_id && profile.value && sample.value);
+      auditionSourceButton.disabled = !uploadedInput?.media_url;
+      auditionReferenceButton.disabled = !(profile.value && sample.value);
+      auditionOutputButton.disabled = !latestOutput?.media_url;
+      const videoJobRunning = activeVideoJob && !['completed', 'failed'].includes(activeVideoJob.status);
+      youtubeConvertButton.disabled = !(
+        youtubeReady && engineReady && profile.value && sample.value &&
+        youtubeAuthorized.checked && youtubeUrl.value.trim() && !videoJobRunning
+      );
+    }
+
+    function loadMedia(url, label, autoplay = false) {
+      if (!url) return;
+      audioPlayer.src = url;
+      audioPlayer.load();
+      playerLabel.textContent = label;
+      playerStatus.textContent = autoplay ? 'Loading audio…' : 'Ready to play.';
+      if (autoplay) {
+        audioPlayer.play().then(() => {
+          playerStatus.textContent = 'Playing.';
+        }).catch(() => {
+          playerStatus.textContent = 'Ready to play. Use the player controls to start.';
+        });
+      }
+    }
+
+    function formatBytes(bytes) {
+      if (!Number.isFinite(bytes) || bytes < 0) return '';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let value = bytes;
+      let unit = 0;
+      while (value >= 1000 && unit < units.length - 1) { value /= 1000; unit += 1; }
+      return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}`;
+    }
+
+    function uploadFile(file, onProgress) {
+      return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open('POST', `/api/inputs?filename=${encodeURIComponent(file.name)}`);
+        request.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        request.upload.addEventListener('progress', event => {
+          onProgress(event.lengthComputable ? Math.round((event.loaded / event.total) * 100) : null);
+        });
+        request.addEventListener('load', () => {
+          let body = {};
+          if (request.responseText) {
+            try { body = JSON.parse(request.responseText); }
+            catch { body = { detail: request.responseText }; }
+          }
+          if (request.status >= 200 && request.status < 300) resolve(body);
+          else reject(new Error(body.detail || `HTTP ${request.status}`));
+        });
+        request.addEventListener('error', () => reject(new Error('Upload failed. Check that the local bridge is running.')));
+        request.addEventListener('abort', () => reject(new Error('Upload cancelled.')));
+        request.send(file);
+      });
+    }
+
+    async function loadSamples() {
+      const loadToken = ++sampleLoadToken;
+      referenceLoadToken += 1;
+      const profileId = profile.value;
+      sample.replaceChildren(option('', 'Loading samples…'));
+      sample.disabled = true;
+      fetchButton.disabled = true;
+      referenceSummary.textContent = '';
+      updateActions();
+      if (!profileId) {
+        sample.replaceChildren(option('', 'Select a profile first'));
+        return;
+      }
+      try {
+        const samples = await json(`/api/profiles/${encodeURIComponent(profileId)}/samples`);
+        if (loadToken !== sampleLoadToken || profile.value !== profileId) return;
+        const singleSample = samples.length === 1;
+        sample.replaceChildren(option('', samples.length ? (singleSample ? 'Using the only reference sample' : 'Choose a reference sample') : 'No reference samples found'));
+        samples.forEach((item, index) => {
+          const transcript = (item.reference_text || 'no transcript').slice(0, 80);
+          sample.append(option(item.id, `Sample ${index + 1}: ${transcript}`));
+        });
+        sample.disabled = samples.length === 0;
+        if (singleSample) sample.value = samples[0].id;
+        updateActions();
+        if (singleSample) await prepareReference();
+      } catch (error) {
+        if (loadToken !== sampleLoadToken || profile.value !== profileId) return;
+        setStatus(referenceSummary, error.message, 'bad');
+        sample.replaceChildren(option('', 'Could not load samples'));
+      }
+      updateActions();
+    }
+
+    async function prepareReference({ audition = false } = {}) {
+      if (!profile.value || !sample.value) return;
+      const profileId = profile.value;
+      const sampleId = sample.value;
+      const profileLabel = selectedText(profile);
+      const loadToken = ++referenceLoadToken;
+      fetchButton.disabled = true;
+      auditionReferenceButton.disabled = true;
+      setStatus(referenceSummary, 'Downloading and validating reference…');
+      try {
+        const body = await json('/api/references', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile_id: profileId, sample_id: sampleId })
+        });
+        if (loadToken !== referenceLoadToken || profile.value !== profileId || sample.value !== sampleId) return;
+        const referenceUrl = `/api/media/references/${encodeURIComponent(profileId)}/${encodeURIComponent(sampleId)}`;
+        setStatus(referenceSummary, 'Reference WAV is cached and ready.', 'ok');
+        showDetails(referenceDetails, result, body);
+        if (audition) loadMedia(referenceUrl, `Reference · ${profileLabel}`, true);
+      } catch (error) {
+        if (loadToken !== referenceLoadToken || profile.value !== profileId || sample.value !== sampleId) return;
+        setStatus(referenceSummary, error.message, 'bad');
+      } finally {
+        if (loadToken === referenceLoadToken) {
+          fetchButton.disabled = !sample.value;
+          updateActions();
+        }
+      }
+    }
+
+    function videoStageLabel(stage) {
+      const labels = {
+        queued: 'Queued',
+        downloading: 'Downloading the highest-quality video',
+        extracting_audio: 'Extracting lossless source audio',
+        preparing_chunks: 'Preparing duration-aligned chunks',
+        converting_chunks: 'Converting speech chunks on CUDA',
+        reconstructing_audio: 'Crossfading and reconstructing exact timing',
+        remuxing_video: 'Remuxing copied video with lossless audio',
+        validating_output: 'Fully decoding and validating the finished video',
+        completed: 'Completed',
+        failed: 'Failed'
+      };
+      return labels[stage] || String(stage || 'Working').replaceAll('_', ' ');
+    }
+
+    function showCompletedVideo(job) {
+      const mediaUrl = job.media_url || `/api/media/video-jobs/${encodeURIComponent(job.job_id)}`;
+      videoPlayer.src = mediaUrl;
+      videoPlayer.hidden = false;
+      videoPlayer.load();
+      videoDownload.href = mediaUrl;
+      videoDownload.download = `voicebox-sts-${job.job_id}.mkv`;
+      videoDownload.hidden = false;
+      videoPlayerLabel.textContent = job.video?.title || `Completed job ${job.job_id}`;
+    }
+
+    async function pollVideoJob(jobId) {
+      if (videoPollTimer) clearTimeout(videoPollTimer);
+      try {
+        const job = await json(`/api/youtube/jobs/${encodeURIComponent(jobId)}`);
+        activeVideoJob = job;
+        const progress = Math.max(0, Math.min(100, Number(job.progress_percent) || 0));
+        youtubeProgress.hidden = false;
+        youtubeProgress.value = progress;
+        const chunks = job.chunk_count ? ` · ${job.chunks_completed || 0}/${job.chunk_count} chunks` : '';
+        setStatus(
+          youtubeSummary,
+          `${videoStageLabel(job.stage)} · ${progress.toFixed(1)}%${chunks}`,
+          job.status === 'completed' ? 'ok' : job.status === 'failed' ? 'bad' : ''
+        );
+        showDetails(youtubeDetails, youtubeResult, job);
+        if (job.status === 'completed') {
+          showCompletedVideo(job);
+        } else if (job.status !== 'failed') {
+          videoPollTimer = setTimeout(() => pollVideoJob(jobId), 2000);
+        }
+      } catch (error) {
+        setStatus(youtubeSummary, error.message, 'bad');
+      } finally {
+        updateActions();
+      }
+    }
+
+    async function start() {
+      try {
+        const status = await json('/api/voicebox/health');
+        setStatus(health, `${status.status || 'Available'} · ${status.gpu_type || 'GPU status unavailable'}`, 'ok');
+        const profiles = (await json('/api/profiles')).filter(item => item.voice_type === 'cloned' && item.sample_count > 0);
+        profile.replaceChildren(option('', profiles.length ? 'Choose a cloned profile' : 'No cloned profiles with samples found'));
+        profiles.forEach(item => {
+          const count = item.sample_count;
+          profile.append(option(item.id, `${item.name} (${count} sample${count === 1 ? '' : 's'})`));
+        });
+        profile.disabled = profiles.length === 0;
+      } catch (error) {
+        setStatus(health, error.message, 'bad');
+        profile.replaceChildren(option('', 'VoiceBox unavailable'));
+      }
+
+      try {
+        const state = await json('/api/engine/status');
+        engineReady = Boolean(state.ready);
+        setStatus(engine, state.ready ? `Ready · Python ${state.python_version || 'available'}` : 'Installation incomplete', state.ready ? 'ok' : 'bad');
+        probeButton.disabled = !state.ready;
+      } catch (error) {
+        engineReady = false;
+        setStatus(engine, error.message, 'bad');
+      }
+
+      try {
+        const state = await json('/api/youtube/status');
+        youtubeReady = Boolean(state.ready);
+        setStatus(
+          youtubeEngine,
+          state.ready
+            ? `Ready · yt-dlp ${state.yt_dlp_version} · copied video + lossless FLAC audio`
+            : 'YouTube pipeline installation is incomplete',
+          state.ready ? 'ok' : 'bad'
+        );
+      } catch (error) {
+        youtubeReady = false;
+        setStatus(youtubeEngine, error.message, 'bad');
+      }
+      updateActions();
+      const previousVideoJob = localStorage.getItem('voicebox-sts-latest-video-job');
+      if (previousVideoJob) pollVideoJob(previousVideoJob);
+    }
+
+    profile.addEventListener('change', loadSamples);
+    sample.addEventListener('change', () => {
+      referenceLoadToken += 1;
+      fetchButton.disabled = !sample.value;
+      referenceSummary.textContent = '';
+      updateActions();
+    });
+    youtubeUrl.addEventListener('input', updateActions);
+    youtubeAuthorized.addEventListener('change', updateActions);
+
+    chooseSourceButton.addEventListener('click', () => source.click());
+    source.addEventListener('change', async () => {
+      const file = source.files?.[0];
+      source.value = '';
+      if (!file) return;
+
+      uploadedInput = null;
+      latestOutput = null;
+      chooseSourceButton.disabled = true;
+      sourceName.textContent = `${file.name} · ${formatBytes(file.size)}`;
+      uploadDetails.hidden = true;
+      conversionSummary.textContent = '';
+      conversionDetails.hidden = true;
+      updateActions();
+
+      try {
+        const body = await uploadFile(file, percent => {
+          setStatus(uploadStatus, percent === null ? `Uploading ${file.name}…` : `Uploading ${file.name}… ${percent}%`);
+        });
+        if (!body.input_id) throw new Error('Upload response did not include an input ID.');
+        uploadedInput = { ...body, original_name: file.name };
+        setStatus(uploadStatus, `${file.name} uploaded and ready.`, 'ok');
+        showDetails(uploadDetails, uploadResult, body);
+        if (body.media_url) loadMedia(body.media_url, `Source · ${file.name}`, false);
+      } catch (error) {
+        setStatus(uploadStatus, error.message, 'bad');
+      } finally {
+        chooseSourceButton.disabled = false;
+        updateActions();
+      }
+    });
+
+    fetchButton.addEventListener('click', () => prepareReference());
+
+    probeButton.addEventListener('click', async () => {
+      probeButton.disabled = true;
+      setStatus(probeSummary, 'Loading the model on CUDA…');
+      try {
+        const body = await json('/api/engine/probe', { method: 'POST' });
+        setStatus(probeSummary, body.device ? `Probe complete on ${body.device}.` : 'CUDA probe completed successfully.', 'ok');
+        showDetails(probeDetails, probeResult, body);
+      } catch (error) {
+        setStatus(probeSummary, error.message, 'bad');
+      } finally {
+        probeButton.disabled = !engineReady;
+      }
+    });
+
+    convertButton.addEventListener('click', async () => {
+      convertButton.disabled = true;
+      setStatus(conversionSummary, 'Converting locally on CUDA…');
+      try {
+        const body = await json('/api/conversions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            input_id: uploadedInput.input_id,
+            profile_id: profile.value,
+            sample_id: sample.value,
+            tau: 0.3
+          })
+        });
+        if (!body.job_id) throw new Error('Conversion completed without a job ID.');
+        latestOutput = {
+          job_id: body.job_id,
+          media_url: `/api/media/outputs/${encodeURIComponent(body.job_id)}`
+        };
+        const status = body.status || 'completed';
+        setStatus(conversionSummary, `Conversion ${status}. Job ${body.job_id}.`, status === 'completed' ? 'ok' : '');
+        showDetails(conversionDetails, conversionResult, body);
+        loadMedia(latestOutput.media_url, `Output · job ${body.job_id}`, false);
+      } catch (error) {
+        setStatus(conversionSummary, error.message, 'bad');
+      } finally {
+        updateActions();
+      }
+    });
+
+    youtubeConvertButton.addEventListener('click', async () => {
+      youtubeConvertButton.disabled = true;
+      youtubeProgress.hidden = false;
+      youtubeProgress.value = 0;
+      setStatus(youtubeSummary, 'Creating local video conversion job…');
+      try {
+        const job = await json('/api/youtube/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            youtube_url: youtubeUrl.value.trim(),
+            profile_id: profile.value,
+            sample_id: sample.value,
+            tau: 0.3,
+            authorized: youtubeAuthorized.checked
+          })
+        });
+        activeVideoJob = job;
+        localStorage.setItem('voicebox-sts-latest-video-job', job.job_id);
+        showDetails(youtubeDetails, youtubeResult, job);
+        pollVideoJob(job.job_id);
+      } catch (error) {
+        activeVideoJob = null;
+        setStatus(youtubeSummary, error.message, 'bad');
+        updateActions();
+      }
+    });
+
+    auditionSourceButton.addEventListener('click', () => {
+      loadMedia(uploadedInput?.media_url, `Source · ${uploadedInput?.original_name || 'uploaded audio'}`, true);
+    });
+    auditionReferenceButton.addEventListener('click', () => prepareReference({ audition: true }));
+    auditionOutputButton.addEventListener('click', () => {
+      loadMedia(latestOutput?.media_url, `Output · job ${latestOutput?.job_id || ''}`, true);
+    });
+    audioPlayer.addEventListener('ended', () => { playerStatus.textContent = 'Playback finished.'; });
+    audioPlayer.addEventListener('error', () => { playerStatus.textContent = 'This audio could not be loaded.'; });
+
+    start();
+  </script>
+</body>
+</html>

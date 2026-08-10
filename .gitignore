@@ -1,0 +1,17 @@
+.venv/
+.envs/
+.cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.playwright-cli/
+.coverage
+output/
+
+# Runtime artifacts stay local.
+data/*
+!data/.gitkeep
+
+# Audited third-party engines are kept isolated from bridge code.
+third_party/
