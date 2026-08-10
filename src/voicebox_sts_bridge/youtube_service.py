@@ -22,6 +22,7 @@ from uuid import UUID, uuid4
 import wave
 
 from .audio_effects import AudioEffectsProcessor, validate_audio_adjustments
+from .youtube_cache import YouTubeCacheError, YouTubeSourceCache
 
 
 class YouTubeJobError(RuntimeError):
@@ -80,6 +81,23 @@ def validate_youtube_url(value: str) -> str:
     if not direct_video:
         raise ValueError("youtube_url must identify one video, not a playlist, channel, or search page")
     return urlunsplit(("https", host, parsed.path, parsed.query, ""))
+
+
+def youtube_video_id(value: str) -> str:
+    """Extract a safe canonical cache identity from an accepted YouTube URL."""
+    url = validate_youtube_url(value)
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    path_parts = [part for part in parsed.path.split("/") if part]
+    if host == "youtu.be":
+        video_id = path_parts[0]
+    elif parsed.path.rstrip("/") == "/watch":
+        video_id = parse_qs(parsed.query)["v"][0]
+    else:
+        video_id = path_parts[1]
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", video_id):
+        raise ValueError("youtube_url contains an invalid video ID")
+    return video_id
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
@@ -226,6 +244,7 @@ class YouTubeJobService:
         # race between a browser status request and a background-job update.
         self._manifest_lock = threading.RLock()
         self._download_updates: dict[str, tuple[float, int]] = {}
+        self.cache = YouTubeSourceCache(self.data_dir, max_media_bytes=self.max_download_bytes)
 
     def status(self) -> dict[str, Any]:
         yt_dlp_available = not self._uses_default_downloader or importlib.util.find_spec("yt_dlp") is not None
@@ -276,6 +295,7 @@ class YouTubeJobService:
             "output_audio_codec": "FLAC",
             "video_reencoded": False,
             "model_sample_rate_hz": _MODEL_SAMPLE_RATE,
+            "cache": self.cache.status(),
         }
 
     def create_job(
@@ -292,6 +312,7 @@ class YouTubeJobService:
         if authorized is not True:
             raise ValueError("You must confirm that you own or have permission to process this video")
         url = validate_youtube_url(youtube_url)
+        video_id = youtube_video_id(url)
         profile = _uuid(profile_id, "profile_id")
         sample = _uuid(sample_id, "sample_id")
         value_tau = float(tau)
@@ -308,6 +329,10 @@ class YouTubeJobService:
         job_dir = self.jobs_dir / job_id
         job_dir.mkdir(parents=True, exist_ok=False)
         created_at = _utc_now()
+        cache_status = status["cache"]
+        cache_candidate = bool(
+            cache_status.get("active") and cache_status.get("video_id") == video_id
+        )
         manifest = {
             "job_id": job_id,
             "status": "queued",
@@ -316,14 +341,21 @@ class YouTubeJobService:
             "created_at": created_at,
             "updated_at": created_at,
             "youtube_url": url,
+            "youtube_video_id": video_id,
             "profile_id": profile,
             "sample_id": sample,
             "tau": value_tau,
             "pitch_semitones": pitch,
             "brightness_db": brightness,
             "authorized": True,
+            "cache": {
+                "candidate_hit": cache_candidate,
+                "hit": None,
+                "video_id": video_id,
+            },
             "chunk_seconds": self.chunk_seconds,
             "overlap_seconds": self.overlap_seconds,
+            "yt_dlp_version": status.get("yt_dlp_version"),
             "quality": {
                 "inference_precision": "fp32",
                 "intermediate_audio": "PCM s16le",
@@ -346,22 +378,18 @@ class YouTubeJobService:
             if manifest.get("status") == "completed":
                 return
             try:
-                self._update(job_id, status="running", stage="downloading", progress_percent=1.0, started_at=_utc_now())
-                job_dir = self._job_dir(job_id)
-                download_dir = job_dir / "download"
-                source_video, video_info = self._downloader(
-                    manifest["youtube_url"],
-                    download_dir,
-                    lambda progress: self._record_download_progress(job_id, progress),
+                self._update(
+                    job_id,
+                    status="running",
+                    stage="checking_download_cache",
+                    progress_percent=1.0,
+                    started_at=_utc_now(),
                 )
-                source_video = source_video.resolve(strict=True)
-                if not source_video.is_relative_to(download_dir.resolve()):
-                    raise YouTubeJobError("Downloader returned a file outside the job download directory")
-                source_probe = self._probe(source_video)
-                if not any(stream.get("codec_type") == "video" for stream in source_probe.get("streams", [])):
-                    raise YouTubeJobError("Downloaded media does not contain a video stream")
-                if not any(stream.get("codec_type") == "audio" for stream in source_probe.get("streams", [])):
-                    raise YouTubeJobError("Downloaded media does not contain an audio stream")
+                job_dir = self._job_dir(job_id)
+                source_video, video_info, source_probe, cache_result = self._source_for_job(
+                    job_id,
+                    manifest,
+                )
                 source_duration = self._duration_seconds(source_probe)
                 self._update(
                     job_id,
@@ -370,6 +398,7 @@ class YouTubeJobService:
                     source_video=str(source_video),
                     video=video_info,
                     source_probe=source_probe,
+                    cache=cache_result,
                 )
 
                 audio_dir = job_dir / "audio"
@@ -553,6 +582,121 @@ class YouTubeJobService:
                     error={"type": type(exc).__name__, "message": (str(exc).strip() or type(exc).__name__)[:2000]},
                 )
 
+    def cache_status(self) -> dict[str, Any]:
+        return self.cache.status()
+
+    def clear_cache(self) -> dict[str, Any]:
+        if not self._pipeline_lock.acquire(blocking=False):
+            raise YouTubeJobError("The YouTube cache cannot be cleared while a video job is running")
+        try:
+            return self.cache.clear()
+        finally:
+            self._pipeline_lock.release()
+
+    def _source_for_job(
+        self,
+        job_id: str,
+        manifest: dict[str, Any],
+    ) -> tuple[Path, dict[str, Any], dict[str, Any], dict[str, Any]]:
+        video_id = str(manifest.get("youtube_video_id") or youtube_video_id(manifest["youtube_url"]))
+        try:
+            cached = self.cache.lookup(video_id)
+        except YouTubeCacheError as exc:
+            raise YouTubeJobError(str(exc)) from exc
+
+        if cached is not None:
+            video = cached.get("video")
+            source_probe = cached.get("source_probe")
+            if not isinstance(video, dict) or not isinstance(source_probe, dict):
+                self.cache.clear()
+            else:
+                try:
+                    self._validate_source_probe(source_probe, "Cached")
+                except YouTubeJobError:
+                    self.cache.clear()
+                else:
+                    recorded = self.cache.record_hit(video_id)
+                    source = Path(recorded["source_path"]).resolve(strict=True)
+                    cache_result = self._cache_job_result(recorded, hit=True)
+                    self._update(
+                        job_id,
+                        stage="using_cached_download",
+                        progress_percent=15.0,
+                        download={
+                            "status": "cache_hit",
+                            "downloaded_bytes": 0,
+                            "total_bytes": recorded["size_bytes"],
+                            "eta_seconds": 0,
+                            "speed_bytes_per_second": None,
+                        },
+                        cache=cache_result,
+                    )
+                    return source, video, source_probe, cache_result
+
+        staging = self.cache.prepare_staging(job_id)
+        self._update(job_id, stage="downloading", progress_percent=1.0)
+        try:
+            source_video, video_info = self._downloader(
+                manifest["youtube_url"],
+                staging,
+                lambda progress: self._record_download_progress(job_id, progress),
+            )
+            source_video = source_video.resolve(strict=True)
+            if not source_video.is_relative_to(staging.resolve(strict=True)):
+                raise YouTubeJobError("Downloader returned a file outside the cache staging directory")
+            returned_id = str(video_info.get("id") or "")
+            if returned_id != video_id:
+                raise YouTubeJobError(
+                    f"yt-dlp returned video ID {returned_id or 'missing'}, expected {video_id}"
+                )
+            live_status = str(video_info.get("live_status") or "")
+            if video_info.get("is_live") is True or live_status in {
+                "is_live",
+                "is_upcoming",
+                "post_live",
+            }:
+                raise YouTubeJobError("Active or incomplete livestreams are not eligible for caching")
+            source_probe = self._probe(source_video)
+            self._validate_source_probe(source_probe, "Downloaded")
+            published = self.cache.publish(
+                staging,
+                source_video,
+                video_id=video_id,
+                source_url=manifest["youtube_url"],
+                video=video_info,
+                source_probe=source_probe,
+                yt_dlp_version=manifest.get("yt_dlp_version"),
+            )
+            source_video = Path(published["source_path"]).resolve(strict=True)
+            cache_result = self._cache_job_result(published, hit=False)
+            return source_video, video_info, source_probe, cache_result
+        except YouTubeCacheError as exc:
+            raise YouTubeJobError(str(exc)) from exc
+        finally:
+            self.cache.discard_staging(staging)
+
+    @staticmethod
+    def _validate_source_probe(source_probe: dict[str, Any], label: str) -> None:
+        streams = source_probe.get("streams", [])
+        if not any(stream.get("codec_type") == "video" for stream in streams):
+            raise YouTubeJobError(f"{label} media does not contain a video stream")
+        if not any(stream.get("codec_type") == "audio" for stream in streams):
+            raise YouTubeJobError(f"{label} media does not contain an audio stream")
+
+    @staticmethod
+    def _cache_job_result(entry: dict[str, Any], *, hit: bool) -> dict[str, Any]:
+        return {
+            "candidate_hit": hit,
+            "hit": hit,
+            "status": "cache_hit" if hit else "downloaded_and_cached",
+            "video_id": entry["video_id"],
+            "size_bytes": entry["size_bytes"],
+            "cached_at": entry["cached_at"],
+            "last_used_at": entry["last_used_at"],
+            "hit_count": entry["hit_count"],
+            "validated": bool(entry.get("validated")),
+        }
+
     def get_job(self, job_id: str) -> dict[str, Any]:
         job_id = _uuid(job_id, "job_id")
         manifest = self._read_manifest(job_id)
@@ -679,6 +823,8 @@ class YouTubeJobService:
             "width": info.get("width"),
             "height": info.get("height"),
             "fps": info.get("fps"),
+            "is_live": info.get("is_live"),
+            "live_status": info.get("live_status"),
             "source_size_bytes": video_path.stat().st_size,
         }
         return video_path, metadata

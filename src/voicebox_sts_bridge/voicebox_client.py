@@ -70,7 +70,7 @@ class VoiceBoxClient:
     def _request(self, path: str, accept: str) -> tuple[bytes, Any]:
         request = Request(
             f"{self.base_url}{path}",
-            headers={"Accept": accept, "User-Agent": "VoiceBox-STS-Bridge/0.2.1"},
+            headers={"Accept": accept, "User-Agent": "VoiceBox-STS-Bridge/0.3"},
             method="GET",
         )
         try:

@@ -22,6 +22,7 @@ Implemented:
 - full-precision OpenVoice V2 conversion on CUDA;
 - atomic audio job manifests and validated WAV outputs;
 - direct YouTube video downloads through a security-pinned yt-dlp runtime;
+- a validated single-video YouTube download cache that avoids repeat network requests;
 - queued background video jobs with page-refresh recovery;
 - one-model-load batch conversion for long audio;
 - 256-sample-aligned chunks with one-second context overlap and crossfades;
@@ -64,8 +65,11 @@ flowchart LR
     VB --> REF[Cached reference WAV]
     API --> OV[Isolated OpenVoice V2 worker\nPython 3.10 + CUDA]
     FILE[Uploaded audio] --> API
-    YT[Authorized YouTube URL] --> DLP[yt-dlp]
-    DLP --> MEDIA[Downloaded video]
+    YT[Authorized YouTube URL] --> CACHE{Matching cached video ID?}
+    CACHE -->|No| DLP[yt-dlp]
+    DLP --> YCACHE[Validated single-video cache]
+    CACHE -->|Yes| YCACHE
+    YCACHE --> MEDIA[Downloaded source video]
     MEDIA --> FFMPEG[FFmpeg extraction]
     FFMPEG --> CHUNKS[Aligned overlapping PCM chunks]
     REF --> OV
@@ -85,6 +89,7 @@ flowchart LR
 | `openvoice_worker.py` | Safe model loading, single conversion, and one-load batch conversion |
 | `ConversionService` | Serialized single-file jobs and atomic job manifests |
 | `AudioEffectsProcessor` | Formant-preserving pitch shift, high-shelf tone shaping, peak limiting, and exact-frame validation |
+| `YouTubeSourceCache` | Canonical video-ID matching, validated staging, atomic single-entry replacement, hit accounting, and safe clearing |
 | `YouTubeJobService` | URL validation, download, extraction, chunking, conversion, reconstruction, remuxing, and decode validation |
 | FastAPI application | Loopback API, background jobs, byte-range media serving, and web UI |
 
@@ -144,6 +149,8 @@ One-time setup downloads include:
 - the OpenVoice V2 converter checkpoint: **131,320,490 bytes** (about 131 MB), MIT licensed.
 
 Review these downloads and their licenses before installing them on another machine. Exact provenance is recorded in [`config/openvoice-v2.provenance.json`](config/openvoice-v2.provenance.json).
+
+The YouTube source cache retains at most one active downloaded video under `data/youtube_cache/current/`. A replacement may temporarily require space for both the old active file and the new staged download; the old cache is removed immediately after the new file is validated and promoted. The configured per-video safety limit is 12 GiB.
 
 ## Quick start on the configured workstation
 
@@ -317,27 +324,30 @@ Uploads are streamed to UUID-named files under `data/inputs/`. The default uploa
 2. Paste a direct HTTPS YouTube video URL. Watch, Shorts, Live-video, Embed, and `youtu.be` links are accepted when they identify one video.
 3. Set pitch and tone as needed.
 4. Confirm that you own the video or have permission to process it.
-5. Click **Download and convert video**.
-6. Leave the bridge console running. The page displays the current download, extraction, conversion, reconstruction, post-processing, remux, and validation stages.
+5. Click **Download, cache, and convert video**. If the entered video ID matches the active cache, the button changes to **Convert using cached video** and yt-dlp is skipped.
+6. Leave the bridge console running. The page displays cache lookup, download or reuse, extraction, conversion, reconstruction, post-processing, remux, and validation stages.
 7. A page refresh reconnects to the latest job stored in browser local storage.
 8. When complete, use the right-hand video player or save the MKV master.
 
 The URL validator rejects arbitrary hosts, HTTP URLs, credentials, custom ports, playlists without a direct video, channels, and search pages. yt-dlp is configured for one item and ignores user-level yt-dlp configuration files.
+
+The cache is keyed by the canonical YouTube video ID, so equivalent Watch, Shorts, Embed, Live-recording, and `youtu.be` links reuse the same source. The cache panel shows its title, size, and reuse count. **Clear cache** removes only the cached source; completed MKV outputs and durable job records are preserved. Rights confirmation remains mandatory on cache hits.
 
 ## Long-video pipeline
 
 Each YouTube job passes through these durable stages:
 
 1. **Queued** — an atomic manifest is created under `data/video_jobs/JOB_ID/`.
-2. **Downloading** — yt-dlp downloads the best available video/audio combination and merges it locally.
-3. **Extracting audio** — FFmpeg bounds the extraction to the probed video timeline and creates 22.05 kHz mono PCM.
-4. **Preparing chunks** — approximately 30-second cores receive one-second left/right context; all inference inputs are padded to multiples of 256 samples.
-5. **Converting chunks** — one isolated worker loads the OpenVoice model and target embedding once, then converts every chunk sequentially on the GPU.
-6. **Reconstructing** — overlapping converted regions are linearly crossfaded and cropped to the exact source frame count.
-7. **Applying pitch and tone** — optional adjustments run once on the complete reconstructed track; output is forced back to the exact source frame count.
-8. **Remuxing** — FFmpeg copies the original video stream and adds lossless FLAC audio in MKV.
-9. **Validating** — FFprobe verifies codecs and duration; FFmpeg decodes both streams with error-on-failure behavior.
-10. **Completed** — the final media route becomes available only after every check passes.
+2. **Checking the download cache** — the canonical video ID is compared with the one validated active entry.
+3. **Reusing or downloading** — a hit uses the cached media without contacting YouTube; a miss downloads into staging, validates ID/size/streams/checksum, then atomically replaces the active cache.
+4. **Extracting audio** — FFmpeg bounds the extraction to the probed video timeline and creates 22.05 kHz mono PCM.
+5. **Preparing chunks** — approximately 30-second cores receive one-second left/right context; all inference inputs are padded to multiples of 256 samples.
+6. **Converting chunks** — one isolated worker loads the OpenVoice model and target embedding once, then converts every chunk sequentially on the GPU.
+7. **Reconstructing** — overlapping converted regions are linearly crossfaded and cropped to the exact source frame count.
+8. **Applying pitch and tone** — optional adjustments run once on the complete reconstructed track; output is forced back to the exact source frame count.
+9. **Remuxing** — FFmpeg copies the original video stream and adds lossless FLAC audio in MKV.
+10. **Validating** — FFprobe verifies codecs and duration; FFmpeg decodes both streams with error-on-failure behavior.
+11. **Completed** — the final media route becomes available only after every check passes.
 
 GPU jobs share one lock, so local-file and YouTube conversions cannot compete for VRAM.
 
@@ -379,6 +389,8 @@ Interactive OpenAPI documentation is available at <http://127.0.0.1:8765/docs> w
 | `POST` | `/api/inputs?filename=...` | Stream a raw browser-selected audio file into local storage |
 | `POST` | `/api/conversions` | Run one synchronous local-audio conversion |
 | `GET` | `/api/youtube/status` | Check yt-dlp, Node, FFmpeg, and FFprobe readiness |
+| `GET` | `/api/youtube/cache` | Read the validated single-video download cache status |
+| `DELETE` | `/api/youtube/cache` | Clear the cached source without deleting completed outputs |
 | `POST` | `/api/youtube/jobs` | Create an authorized asynchronous video job |
 | `GET` | `/api/youtube/jobs/{job_id}` | Read durable job status and chunk progress |
 | `GET` | `/api/media/inputs/{input_id}` | Stream an uploaded source with byte-range support |
@@ -424,17 +436,20 @@ data/
 ├── models/openvoice-v2/converter/  # Hash-verified config and checkpoint
 ├── outputs/                        # Converted WAV files
 ├── references/PROFILE_ID/          # Cached VoiceBox WAV/JSON references
+├── youtube_cache/
+│   └── current/
+│       ├── manifest.json           # Video ID, checksum, metadata, probe, hit count
+│       └── source.*                # The only active downloaded source video
 └── video_jobs/JOB_ID/
     ├── manifest.json               # Durable job state
     ├── conversion-progress.json    # Worker-side chunk progress
-    ├── download/                    # Downloaded source video
     ├── audio/                       # Extracted and reconstructed PCM WAVs
     ├── chunks/source/               # Context-overlapped inference inputs
     ├── chunks/converted/            # Converted chunks
     └── output.mkv                   # Copied video + lossless FLAC master
 ```
 
-These intermediate files are intentionally retained for debugging, quality review, and future recovery work. Long videos can require substantial disk space.
+Audio/chunk intermediates are intentionally retained for debugging, quality review, and future recovery work. New jobs reference the reusable cache rather than retaining a private duplicate of the downloaded source. Legacy job directories created before version 0.3 may still contain `download/` folders. Long videos can require substantial disk space.
 
 ## Repository layout
 
@@ -490,7 +505,7 @@ $script = [regex]::Match($html, '<script>([\s\S]*?)</script>').Groups[1].Value
 $script | node --check
 ```
 
-Current suite status: **55 tests passing**.
+Current suite status: **62 tests passing**.
 
 ## Security and privacy
 
@@ -504,8 +519,9 @@ Current suite status: **55 tests passing**.
 - Responses use byte-range support, `Cache-Control: no-store`, and `X-Content-Type-Options: nosniff`.
 - YouTube URLs are restricted to direct HTTPS YouTube hosts and one-video paths.
 - yt-dlp user configuration is ignored, playlists are disabled, and the project refuses yt-dlp versions below the configured security floor.
+- Cached media is accepted only from a contained staging directory after its requested/returned YouTube IDs, size, container, audio/video streams, and SHA-256 metadata are validated. Replacement and clearing are constrained to `data/youtube_cache/`.
 - No cloud inference API, paid service, subscription, or per-minute dependency is used.
-- A YouTube download necessarily contacts YouTube; inference and generated media remain local.
+- A cache miss necessarily contacts YouTube; a validated cache hit does not. Inference, cached media, and generated outputs remain local.
 
 Do not expose this prototype to a LAN or the public internet without a separate authentication, CSRF, rate-limit, and threat-model review.
 
@@ -591,6 +607,16 @@ A compatible FFmpeg build must include all three filters. If `rubberband` is abs
 - Playlists, channels, search pages, custom ports, arbitrary hosts, and HTTP URLs are rejected.
 - Private, age-restricted, region-restricted, DRM-protected, or login-required content is outside the supported workflow.
 - Inspect `data/video_jobs/JOB_ID/manifest.json` for the exact failed stage and diagnostic.
+
+### A YouTube video downloads again instead of using the cache
+
+- Confirm the cache panel shows an active video and that the entered link resolves to the same YouTube video ID.
+- The first job after upgrading from a pre-0.3 release must populate the new cache; older per-job downloads are not silently moved or deleted.
+- Active/incomplete livestreams are not cacheable. A completed Live recording is cacheable once yt-dlp reports it as finished.
+- If the cached file's size, containment, schema, or stored stream metadata is invalid, the job safely discards it and downloads a fresh copy.
+- Inspect the job manifest's `cache.hit`, `cache.status`, and `youtube_video_id` fields. A hit also records `download.status` as `cache_hit`.
+
+A failed replacement download leaves the previous valid cache in place. At steady state there is never more than one active cached video, although a non-active staging file can coexist temporarily while its replacement is downloading and being validated.
 
 ### The completed MKV does not play in the browser
 

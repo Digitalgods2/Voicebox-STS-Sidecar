@@ -13,9 +13,11 @@ from uuid import uuid4
 import wave
 
 from voicebox_sts_bridge.youtube_service import (
+    YouTubeJobError,
     YouTubeJobService,
     _read_json,
     validate_youtube_url,
+    youtube_video_id,
 )
 
 
@@ -118,6 +120,17 @@ class YouTubeUrlTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 validate_youtube_url(value)
 
+    def test_extracts_one_canonical_id_from_supported_url_forms(self) -> None:
+        for value in (
+            "https://youtu.be/abc123?t=4",
+            "https://www.youtube.com/watch?v=abc123&list=queue",
+            "https://youtube.com/shorts/abc123",
+            "https://youtube.com/live/abc123",
+            "https://youtube.com/embed/abc123",
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(youtube_video_id(value), "abc123")
+
 
 class DurableManifestTests(unittest.TestCase):
     def test_read_json_retries_a_transient_windows_file_error(self) -> None:
@@ -175,8 +188,10 @@ class YouTubeJobPipelineTests(unittest.TestCase):
             reference = root / "reference.wav"
             write_wave(reference, 22_050)
             source_frames = 22_050 * 11 + 19
+            download_calls: list[str] = []
 
             def downloader(url, destination, progress):
+                download_calls.append(url)
                 destination.mkdir(parents=True)
                 source_video = destination / "source.mkv"
                 source_video.write_bytes(b"mock source video")
@@ -248,6 +263,80 @@ class YouTubeJobPipelineTests(unittest.TestCase):
                 {"pitch_semitones": -2.0, "brightness_db": -3.0, "overwrite": True},
             )
             self.assertTrue(service.resolve_output(manifest["job_id"]).is_file())
+            self.assertFalse(completed["cache"]["hit"])
+            self.assertEqual(completed["cache"]["status"], "downloaded_and_cached")
+
+            rerun = service.create_job(
+                "https://youtu.be/abc123?t=4",
+                profile_id,
+                sample_id,
+                pitch_semitones=-1,
+                brightness_db=-2,
+                authorized=True,
+            )
+            self.assertTrue(rerun["cache"]["candidate_hit"])
+            service.run_job(rerun["job_id"])
+            rerun_completed = service.get_job(rerun["job_id"])
+
+            self.assertEqual(len(download_calls), 1)
+            self.assertTrue(rerun_completed["cache"]["hit"])
+            self.assertEqual(rerun_completed["download"]["status"], "cache_hit")
+            self.assertEqual(service.cache_status()["hit_count"], 1)
+            self.assertEqual(len(engine.calls), 2)
+            first_output = service.resolve_output(manifest["job_id"])
+            rerun_output = service.resolve_output(rerun["job_id"])
+
+            cleared = service.clear_cache()
+
+            self.assertTrue(cleared["cleared"])
+            self.assertTrue(first_output.is_file())
+            self.assertTrue(rerun_output.is_file())
+
+    def test_failed_new_download_preserves_the_existing_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def failed_downloader(*_args):
+                raise YouTubeJobError("simulated rate limit")
+
+            service = YouTubeJobService(
+                root / "data",
+                object(),
+                object(),
+                downloader=failed_downloader,
+                ffmpeg_path=sys.executable,
+                ffprobe_path=sys.executable,
+            )
+            staging = service.cache.prepare_staging("seed")
+            staging.mkdir(parents=True)
+            source = staging / "source.mkv"
+            source.write_bytes(b"existing authorized video")
+            service.cache.publish(
+                staging,
+                source,
+                video_id="existing",
+                source_url="https://youtu.be/existing",
+                video={"id": "existing", "title": "Existing"},
+                source_probe={
+                    "format": {"duration": "10.0", "size": "25"},
+                    "streams": [
+                        {"codec_type": "video", "codec_name": "h264"},
+                        {"codec_type": "audio", "codec_name": "aac"},
+                    ],
+                },
+                yt_dlp_version=None,
+            )
+            job = service.create_job(
+                "https://youtu.be/replacement",
+                str(uuid4()),
+                str(uuid4()),
+                authorized=True,
+            )
+
+            service.run_job(job["job_id"])
+
+            self.assertEqual(service.get_job(job["job_id"])["status"], "failed")
+            self.assertEqual(service.cache_status()["video_id"], "existing")
 
     def test_job_requires_rights_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

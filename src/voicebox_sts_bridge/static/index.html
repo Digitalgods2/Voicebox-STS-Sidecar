@@ -88,6 +88,10 @@
     .adjustment-heading label { margin: 0; }
     .adjustment-heading output { color: var(--accent); font: 800 .9rem/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .range-scale { display: flex; justify-content: space-between; color: var(--muted); font-size: .75rem; }
+    .cache-panel { margin-top: .9rem; padding: .85rem; border: 1px solid var(--border); border-radius: 12px; background: #0b1119; }
+    .cache-panel .section-heading { margin: 0; }
+    .cache-panel .status { margin-top: .35rem; }
+    .cache-panel button { min-height: 36px; padding: .45rem .75rem; font-size: .82rem; }
     progress { width: 100%; height: .75rem; margin-top: 1rem; accent-color: var(--accent-strong); }
     video { display: block; width: 100%; max-height: 260px; margin-top: 1rem; border-radius: 10px; background: #05080d; }
     .download-link { display: block; margin-top: .8rem; padding: .7rem 1rem; border: 1px solid var(--accent-strong); border-radius: 10px; color: var(--accent); text-align: center; text-decoration: none; font-weight: 800; }
@@ -214,6 +218,13 @@
           <h2 id="youtube-heading">6. Convert a YouTube video</h2>
           <p class="muted">Downloads one authorized video, converts its soundtrack in overlapping lossless chunks, and remuxes the exact-length result without re-encoding the video.</p>
           <p id="youtube-engine" class="status" role="status" aria-live="polite">Checking YouTube tools…</p>
+          <div class="cache-panel" aria-labelledby="youtube-cache-heading">
+            <div class="section-heading">
+              <p id="youtube-cache-heading" class="eyebrow">Single-video download cache</p>
+              <button id="youtube-cache-clear" class="secondary" type="button" disabled>Clear cache</button>
+            </div>
+            <p id="youtube-cache-summary" class="status" role="status" aria-live="polite">Checking local cache…</p>
+          </div>
           <label for="youtube-url">YouTube video URL</label>
           <input id="youtube-url" type="url" inputmode="url" autocomplete="url" placeholder="https://www.youtube.com/watch?v=…">
           <div class="checkbox-row">
@@ -297,6 +308,8 @@
     const auditionReferenceButton = document.querySelector('#audition-reference');
     const auditionOutputButton = document.querySelector('#audition-output');
     const youtubeEngine = document.querySelector('#youtube-engine');
+    const youtubeCacheSummary = document.querySelector('#youtube-cache-summary');
+    const youtubeCacheClearButton = document.querySelector('#youtube-cache-clear');
     const youtubeUrl = document.querySelector('#youtube-url');
     const youtubeAuthorized = document.querySelector('#youtube-authorized');
     const youtubeConvertButton = document.querySelector('#youtube-convert');
@@ -311,6 +324,7 @@
     let backendCompatible = false;
     let engineReady = false;
     let youtubeReady = false;
+    let youtubeCache = { active: false };
     let uploadedInput = null;
     let latestOutput = null;
     let sampleLoadToken = 0;
@@ -320,7 +334,7 @@
     let activeVideoJob = null;
     let profileRecords = new Map();
     const adjustmentStorageKey = 'voicebox-sts-profile-adjustments-v1';
-    const requiredBackendFeature = 'resilient-video-polling-v1';
+    const requiredBackendFeature = 'youtube-source-cache-v1';
 
     async function json(url, options) {
       const response = await fetch(url, options);
@@ -357,6 +371,37 @@
 
     function selectedText(select) {
       return select.selectedOptions[0]?.textContent || '';
+    }
+
+    function youtubeVideoIdFromUrl(value) {
+      try {
+        const url = new URL(value.trim());
+        const host = url.hostname.toLowerCase().replace(/\.$/, '');
+        const parts = url.pathname.split('/').filter(Boolean);
+        if (host === 'youtu.be' && parts.length === 1) return parts[0];
+        if (['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com'].includes(host)) {
+          if (url.pathname.replace(/\/$/, '') === '/watch') return url.searchParams.get('v') || '';
+          if (parts.length === 2 && ['shorts', 'live', 'embed'].includes(parts[0])) return parts[1];
+        }
+      } catch { /* An invalid or incomplete URL is simply not a cache match. */ }
+      return '';
+    }
+
+    function renderYouTubeCache(cache) {
+      youtubeCache = cache && typeof cache === 'object' ? cache : { active: false };
+      if (youtubeCache.active) {
+        const title = youtubeCache.title || `YouTube video ${youtubeCache.video_id}`;
+        const hits = Number(youtubeCache.hit_count) || 0;
+        youtubeCacheSummary.textContent = `${title} · ${formatBytes(youtubeCache.size_bytes)} · reused ${hits} time${hits === 1 ? '' : 's'}`;
+        youtubeCacheSummary.className = 'status ok';
+      } else if (youtubeCache.invalid) {
+        youtubeCacheSummary.textContent = 'The cached download is invalid and will be replaced on the next job.';
+        youtubeCacheSummary.className = 'status bad';
+      } else {
+        youtubeCacheSummary.textContent = 'No cached video. The next authorized job will download and cache one.';
+        youtubeCacheSummary.className = 'status';
+      }
+      updateActions();
     }
 
     function signed(value, digits = 1) {
@@ -438,6 +483,14 @@
       auditionReferenceButton.disabled = !(profile.value && sample.value);
       auditionOutputButton.disabled = !latestOutput?.media_url;
       const videoJobRunning = activeVideoJob && !['completed', 'failed'].includes(activeVideoJob.status);
+      const enteredVideoId = youtubeVideoIdFromUrl(youtubeUrl.value);
+      const cacheMatches = Boolean(
+        youtubeCache.active && enteredVideoId && youtubeCache.video_id === enteredVideoId
+      );
+      youtubeConvertButton.textContent = cacheMatches
+        ? 'Convert using cached video'
+        : 'Download, cache, and convert video';
+      youtubeCacheClearButton.disabled = !(youtubeCache.active && !videoJobRunning);
       youtubeConvertButton.disabled = !(
         backendCompatible && youtubeReady && engineReady && profile.value && sample.value &&
         youtubeAuthorized.checked && youtubeUrl.value.trim() && !videoJobRunning
@@ -559,6 +612,8 @@
     function videoStageLabel(stage) {
       const labels = {
         queued: 'Queued',
+        checking_download_cache: 'Checking the local video cache',
+        using_cached_download: 'Using the cached video; download skipped',
         downloading: 'Downloading the highest-quality video',
         extracting_audio: 'Extracting lossless source audio',
         preparing_chunks: 'Preparing duration-aligned chunks',
@@ -582,6 +637,15 @@
       videoDownload.download = `voicebox-sts-${job.job_id}.mkv`;
       videoDownload.hidden = false;
       videoPlayerLabel.textContent = job.video?.title || `Completed job ${job.job_id}`;
+    }
+
+    async function refreshYouTubeCache() {
+      try {
+        renderYouTubeCache(await json('/api/youtube/cache'));
+      } catch (error) {
+        youtubeCacheSummary.textContent = error.message;
+        youtubeCacheSummary.className = 'status bad';
+      }
     }
 
     function beginVideoPolling(jobId) {
@@ -608,6 +672,9 @@
         showDetails(youtubeDetails, youtubeResult, job);
         if (job.status === 'completed') {
           showCompletedVideo(job);
+          refreshYouTubeCache();
+        } else if (job.status === 'failed') {
+          refreshYouTubeCache();
         } else if (job.status !== 'failed') {
           videoPollTimer = setTimeout(() => pollVideoJob(jobId, 0, generation), 2000);
         }
@@ -685,9 +752,12 @@
             : 'YouTube pipeline installation is incomplete',
           state.ready ? 'ok' : 'bad'
         );
+        renderYouTubeCache(state.cache);
       } catch (error) {
         youtubeReady = false;
         setStatus(youtubeEngine, error.message, 'bad');
+        youtubeCacheSummary.textContent = 'Cache status is unavailable.';
+        youtubeCacheSummary.className = 'status bad';
       }
       updateActions();
       const previousVideoJob = localStorage.getItem('voicebox-sts-latest-video-job');
@@ -706,6 +776,22 @@
     });
     youtubeUrl.addEventListener('input', updateActions);
     youtubeAuthorized.addEventListener('change', updateActions);
+    youtubeCacheClearButton.addEventListener('click', async () => {
+      if (!youtubeCache.active) return;
+      const title = youtubeCache.title || youtubeCache.video_id;
+      if (!window.confirm(`Clear the cached download for “${title}”? Completed outputs will be kept.`)) return;
+      youtubeCacheClearButton.disabled = true;
+      youtubeCacheSummary.textContent = 'Clearing the cached download…';
+      youtubeCacheSummary.className = 'status';
+      try {
+        const result = await json('/api/youtube/cache', { method: 'DELETE' });
+        renderYouTubeCache(result.cache);
+      } catch (error) {
+        youtubeCacheSummary.textContent = error.message;
+        youtubeCacheSummary.className = 'status bad';
+        updateActions();
+      }
+    });
     pitchCorrection.addEventListener('input', saveProfileAdjustments);
     brightness.addEventListener('input', saveProfileAdjustments);
     resetAdjustmentsButton.addEventListener('click', () => {

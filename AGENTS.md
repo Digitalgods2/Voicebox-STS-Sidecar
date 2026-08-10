@@ -127,6 +127,7 @@ The initial proof of concept and its long-video extension are implemented and va
 - The web UI automatically selects a sole reference sample, provides native file pickers, and includes persistent source, reference, output-audio, and output-video players.
 - The UI provides per-profile pitch correction and brightness/tone-depth controls. Pitch uses high-quality, formant-preserving Rubber Band processing; tone uses a high shelf; both paths enforce the original converted frame count before publishing output.
 - The YouTube workflow validates authorized URLs, downloads one video locally, extracts full-quality PCM, converts aligned overlapping chunks with one model load, reconstructs the exact source frame count, copies the original video stream, writes lossless FLAC audio to MKV, and fully decodes the result before reporting success.
+- YouTube downloads use a validated single-entry source cache keyed by canonical video ID. Matching reruns make no yt-dlp/YouTube request; a different successfully validated download atomically replaces the prior cache without deleting completed job outputs.
 - Durable manifests and progress files survive page refreshes. Automatic continuation after the bridge process itself exits remains future work.
 - Runtime environments, upstream source, model weights, reference caches, source media, and generated outputs remain ignored local data and are not part of the repository.
 

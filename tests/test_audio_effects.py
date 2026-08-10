@@ -174,18 +174,36 @@ class AdjustmentUiContractTests(unittest.TestCase):
         self.assertGreaterEqual(page.count("...adjustments"), 2)
         self.assertIn("effects_chain", page)
         self.assertIn("voicebox-sts-profile-adjustments-v1", page)
-        self.assertIn("resilient-video-polling-v1", page)
         self.assertIn("Waiting for durable job status", page)
+        self.assertIn('id="youtube-cache-summary"', page)
+        self.assertIn('id="youtube-cache-clear"', page)
+        self.assertIn("Convert using cached video", page)
+        self.assertIn("youtube-source-cache-v1", page)
 
     def test_backend_advertises_the_ui_compatibility_feature(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             app = create_app(Settings(data_dir=Path(directory) / "data"))
             route = next(route for route in app.routes if route.path == "/api/version")
+            cache_route = next(
+                route
+                for route in app.routes
+                if route.path == "/api/youtube/cache" and "GET" in route.methods
+            )
+            clear_route = next(
+                route
+                for route in app.routes
+                if route.path == "/api/youtube/cache" and "DELETE" in route.methods
+            )
 
             response = route.endpoint()
+            cache_status = cache_route.endpoint()
+            clear_status = clear_route.endpoint()
 
         self.assertEqual(response["version"], __version__)
         self.assertIn("resilient-video-polling-v1", response["features"])
+        self.assertIn("youtube-source-cache-v1", response["features"])
+        self.assertFalse(cache_status["active"])
+        self.assertFalse(clear_status["cleared"])
 
 
 if __name__ == "__main__":

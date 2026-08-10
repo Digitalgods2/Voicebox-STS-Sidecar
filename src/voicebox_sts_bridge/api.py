@@ -97,7 +97,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def version() -> dict[str, Any]:
         return {
             "version": __version__,
-            "features": ["audio-adjustments-v1", "resilient-video-polling-v1"],
+            "features": [
+                "audio-adjustments-v1",
+                "resilient-video-polling-v1",
+                "youtube-source-cache-v1",
+            ],
         }
 
     @app.get("/api/voicebox/health")
@@ -212,6 +216,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/youtube/status")
     def youtube_status() -> dict[str, Any]:
         return youtube.status()
+
+    @app.get("/api/youtube/cache")
+    def youtube_cache_status() -> dict[str, Any]:
+        return youtube.cache_status()
+
+    @app.delete("/api/youtube/cache")
+    def clear_youtube_cache() -> dict[str, Any]:
+        try:
+            return youtube.clear_cache()
+        except YouTubeJobError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/youtube/jobs", status_code=202)
     def create_youtube_job(
