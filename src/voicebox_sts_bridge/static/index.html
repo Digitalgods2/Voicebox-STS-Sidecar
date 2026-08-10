@@ -308,6 +308,7 @@
     const videoPlayerLabel = document.querySelector('#video-player-label');
     const videoDownload = document.querySelector('#video-download');
 
+    let backendCompatible = false;
     let engineReady = false;
     let youtubeReady = false;
     let uploadedInput = null;
@@ -315,9 +316,11 @@
     let sampleLoadToken = 0;
     let referenceLoadToken = 0;
     let videoPollTimer = null;
+    let videoPollGeneration = 0;
     let activeVideoJob = null;
     let profileRecords = new Map();
     const adjustmentStorageKey = 'voicebox-sts-profile-adjustments-v1';
+    const requiredBackendFeature = 'resilient-video-polling-v1';
 
     async function json(url, options) {
       const response = await fetch(url, options);
@@ -327,7 +330,11 @@
         try { body = JSON.parse(text); }
         catch { body = { detail: text }; }
       }
-      if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+      if (!response.ok) {
+        const error = new Error(body.detail || `HTTP ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
       return body;
     }
 
@@ -424,13 +431,15 @@
     }
 
     function updateActions() {
-      convertButton.disabled = !(engineReady && uploadedInput?.input_id && profile.value && sample.value);
+      convertButton.disabled = !(
+        backendCompatible && engineReady && uploadedInput?.input_id && profile.value && sample.value
+      );
       auditionSourceButton.disabled = !uploadedInput?.media_url;
       auditionReferenceButton.disabled = !(profile.value && sample.value);
       auditionOutputButton.disabled = !latestOutput?.media_url;
       const videoJobRunning = activeVideoJob && !['completed', 'failed'].includes(activeVideoJob.status);
       youtubeConvertButton.disabled = !(
-        youtubeReady && engineReady && profile.value && sample.value &&
+        backendCompatible && youtubeReady && engineReady && profile.value && sample.value &&
         youtubeAuthorized.checked && youtubeUrl.value.trim() && !videoJobRunning
       );
     }
@@ -575,15 +584,22 @@
       videoPlayerLabel.textContent = job.video?.title || `Completed job ${job.job_id}`;
     }
 
-    async function pollVideoJob(jobId) {
+    function beginVideoPolling(jobId) {
       if (videoPollTimer) clearTimeout(videoPollTimer);
+      const generation = ++videoPollGeneration;
+      pollVideoJob(jobId, 0, generation);
+    }
+
+    async function pollVideoJob(jobId, readFailures, generation) {
       try {
         const job = await json(`/api/youtube/jobs/${encodeURIComponent(jobId)}`);
+        if (generation !== videoPollGeneration) return;
         activeVideoJob = job;
         const progress = Math.max(0, Math.min(100, Number(job.progress_percent) || 0));
         youtubeProgress.hidden = false;
         youtubeProgress.value = progress;
-        const chunks = job.chunk_count ? ` · ${job.chunks_completed || 0}/${job.chunk_count} chunks` : '';
+        const completedChunks = job.status === 'completed' ? job.chunk_count : (job.chunks_completed || 0);
+        const chunks = job.chunk_count ? ` · ${completedChunks}/${job.chunk_count} chunks` : '';
         setStatus(
           youtubeSummary,
           `${videoStageLabel(job.stage)} · ${progress.toFixed(1)}%${chunks}`,
@@ -593,16 +609,46 @@
         if (job.status === 'completed') {
           showCompletedVideo(job);
         } else if (job.status !== 'failed') {
-          videoPollTimer = setTimeout(() => pollVideoJob(jobId), 2000);
+          videoPollTimer = setTimeout(() => pollVideoJob(jobId, 0, generation), 2000);
         }
       } catch (error) {
-        setStatus(youtubeSummary, error.message, 'bad');
+        if (generation !== videoPollGeneration) return;
+        const retryable = !error.status || [404, 500, 503].includes(error.status);
+        if (retryable && readFailures < 12) {
+          const nextFailure = readFailures + 1;
+          setStatus(
+            youtubeSummary,
+            `Waiting for durable job status… retry ${nextFailure}/12`,
+          );
+          videoPollTimer = setTimeout(
+            () => pollVideoJob(jobId, nextFailure, generation),
+            1000,
+          );
+        } else {
+          activeVideoJob = null;
+          setStatus(youtubeSummary, error.message, 'bad');
+        }
       } finally {
         updateActions();
       }
     }
 
     async function start() {
+      try {
+        const backend = await json('/api/version');
+        if (!Array.isArray(backend.features) || !backend.features.includes(requiredBackendFeature)) {
+          throw new Error('The running bridge backend is older than this page.');
+        }
+        backendCompatible = true;
+      } catch (error) {
+        const message = 'Restart required: close the existing bridge console, then run start-bridge.bat again.';
+        setStatus(health, message, 'bad');
+        setStatus(engine, message, 'bad');
+        setStatus(youtubeEngine, message, 'bad');
+        updateActions();
+        return;
+      }
+
       try {
         const status = await json('/api/voicebox/health');
         setStatus(health, `${status.status || 'Available'} · ${status.gpu_type || 'GPU status unavailable'}`, 'ok');
@@ -645,7 +691,7 @@
       }
       updateActions();
       const previousVideoJob = localStorage.getItem('voicebox-sts-latest-video-job');
-      if (previousVideoJob) pollVideoJob(previousVideoJob);
+      if (previousVideoJob) beginVideoPolling(previousVideoJob);
     }
 
     profile.addEventListener('change', () => {
@@ -773,7 +819,7 @@
         activeVideoJob = job;
         localStorage.setItem('voicebox-sts-latest-video-job', job.job_id);
         showDetails(youtubeDetails, youtubeResult, job);
-        pollVideoJob(job.job_id);
+        beginVideoPolling(job.job_id);
       } catch (error) {
         activeVideoJob = null;
         setStatus(youtubeSummary, error.message, 'bad');

@@ -108,10 +108,17 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise YouTubeJobError(f"Job metadata is missing or invalid: {path}") from exc
+    last_error: Exception | None = None
+    for attempt in range(4):
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            break
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            last_error = exc
+            if attempt < 3:
+                time.sleep(0.025 * (attempt + 1))
+    else:
+        raise YouTubeJobError(f"Job metadata is missing or invalid: {path}") from last_error
     if not isinstance(value, dict):
         raise YouTubeJobError(f"Job metadata is not a JSON object: {path}")
     return value
@@ -214,7 +221,10 @@ class YouTubeJobService:
         self._downloader = downloader or self._download_with_yt_dlp
         self._conversion_lock = conversion_lock or threading.Lock()
         self._pipeline_lock = threading.Lock()
-        self._manifest_lock = threading.Lock()
+        # Readers and writers share this re-entrant lock. Atomic replacement
+        # protects the file itself, while this also avoids a Windows sharing
+        # race between a browser status request and a background-job update.
+        self._manifest_lock = threading.RLock()
         self._download_updates: dict[str, tuple[float, int]] = {}
 
     def status(self) -> dict[str, Any]:
@@ -582,10 +592,11 @@ class YouTubeJobService:
         return self._job_dir(job_id) / "manifest.json"
 
     def _read_manifest(self, job_id: str) -> dict[str, Any]:
-        path = self._manifest_path(job_id)
-        if not path.is_file():
-            raise FileNotFoundError(f"Video job does not exist: {job_id}")
-        return _read_json(path)
+        with self._manifest_lock:
+            path = self._manifest_path(job_id)
+            if not path.is_file():
+                raise FileNotFoundError(f"Video job does not exist: {job_id}")
+            return _read_json(path)
 
     def _update(self, job_id: str, **changes: Any) -> dict[str, Any]:
         with self._manifest_lock:

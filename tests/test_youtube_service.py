@@ -8,10 +8,15 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 import wave
 
-from voicebox_sts_bridge.youtube_service import YouTubeJobService, validate_youtube_url
+from voicebox_sts_bridge.youtube_service import (
+    YouTubeJobService,
+    _read_json,
+    validate_youtube_url,
+)
 
 
 def write_wave(path: Path, frames: int, *, sample_rate: int = 22_050) -> bytes:
@@ -112,6 +117,22 @@ class YouTubeUrlTests(unittest.TestCase):
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 validate_youtube_url(value)
+
+
+class DurableManifestTests(unittest.TestCase):
+    def test_read_json_retries_a_transient_windows_file_error(self) -> None:
+        with (
+            patch.object(
+                Path,
+                "read_text",
+                side_effect=[PermissionError("temporarily busy"), '{"status": "running"}'],
+            ),
+            patch("voicebox_sts_bridge.youtube_service.time.sleep") as sleep,
+        ):
+            result = _read_json(Path("manifest.json"))
+
+        self.assertEqual(result, {"status": "running"})
+        sleep.assert_called_once_with(0.025)
 
 
 class YouTubeAudioTimelineTests(unittest.TestCase):

@@ -11,13 +11,15 @@ import wave
 
 from pydantic import ValidationError
 
-from voicebox_sts_bridge.api import ConversionRequest, YouTubeJobRequest
+from voicebox_sts_bridge import __version__
+from voicebox_sts_bridge.api import ConversionRequest, YouTubeJobRequest, create_app
 from voicebox_sts_bridge.audio_effects import (
     AudioEffectsError,
     AudioEffectsProcessor,
     inspect_pcm_wav,
     validate_audio_adjustments,
 )
+from voicebox_sts_bridge.settings import Settings
 
 
 def write_wave(path: Path, frames: int = 4_096, *, sample_rate: int = 22_050) -> bytes:
@@ -172,6 +174,18 @@ class AdjustmentUiContractTests(unittest.TestCase):
         self.assertGreaterEqual(page.count("...adjustments"), 2)
         self.assertIn("effects_chain", page)
         self.assertIn("voicebox-sts-profile-adjustments-v1", page)
+        self.assertIn("resilient-video-polling-v1", page)
+        self.assertIn("Waiting for durable job status", page)
+
+    def test_backend_advertises_the_ui_compatibility_feature(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app = create_app(Settings(data_dir=Path(directory) / "data"))
+            route = next(route for route in app.routes if route.path == "/api/version")
+
+            response = route.endpoint()
+
+        self.assertEqual(response["version"], __version__)
+        self.assertIn("resilient-video-polling-v1", response["features"])
 
 
 if __name__ == "__main__":

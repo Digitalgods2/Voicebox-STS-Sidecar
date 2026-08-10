@@ -490,7 +490,7 @@ $script = [regex]::Match($html, '<script>([\s\S]*?)</script>').Groups[1].Value
 $script | node --check
 ```
 
-Current suite status: **53 tests passing**.
+Current suite status: **55 tests passing**.
 
 ## Security and privacy
 
@@ -608,6 +608,12 @@ Use a different loopback port:
 $env:BRIDGE_PORT = "8877"
 .\.venv\Scripts\python.exe -m voicebox_sts_bridge serve
 ```
+
+### The page says the bridge must be restarted
+
+The HTML page is read from disk on each browser load, but Python API code remains in the running process. After updating the repository, close the existing bridge console and launch [`start-bridge.bat`](start-bridge.bat) again. The UI checks the backend feature version before enabling conversions, which prevents new controls from being shown against an older API process.
+
+Video status polling tolerates short Windows file-sharing interruptions and retries transient manifest reads. A completed output remains on disk even if the browser temporarily loses its status update; refreshing after the bridge is restarted reconnects to the latest saved job.
 
 ## Dependency and license notes
 

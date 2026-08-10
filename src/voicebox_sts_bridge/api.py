@@ -9,6 +9,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
+from . import __version__
 from .audio_effects import AudioEffectsError, MAX_BRIGHTNESS_DB, MAX_PITCH_SEMITONES
 from .conversion_service import ConversionService
 from .media_store import MediaStore
@@ -49,7 +50,7 @@ class YouTubeJobRequest(BaseModel):
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
-    app = FastAPI(title="VoiceBox STS Bridge", version="0.2.0")
+    app = FastAPI(title="VoiceBox STS Bridge", version=__version__)
     client = VoiceBoxClient(
         settings.voicebox_base_url,
         timeout_seconds=settings.request_timeout_seconds,
@@ -91,6 +92,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def index() -> str:
         page = Path(__file__).with_name("static") / "index.html"
         return page.read_text(encoding="utf-8")
+
+    @app.get("/api/version", include_in_schema=False)
+    def version() -> dict[str, Any]:
+        return {
+            "version": __version__,
+            "features": ["audio-adjustments-v1", "resilient-video-polling-v1"],
+        }
 
     @app.get("/api/voicebox/health")
     def health() -> dict[str, Any]:
@@ -236,7 +244,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except YouTubeJobError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.get("/api/media/video-jobs/{job_id}", response_class=FileResponse)
     def youtube_output_media(job_id: str) -> FileResponse:
