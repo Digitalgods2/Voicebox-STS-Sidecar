@@ -637,7 +637,15 @@ $env:BRIDGE_PORT = "8877"
 
 ### The page says the bridge must be restarted
 
-The HTML page is read from disk on each browser load, but Python API code remains in the running process. After updating the repository, close the existing bridge console and launch [`start-bridge.bat`](start-bridge.bat) again. The UI checks the backend feature version before enabling conversions, which prevents new controls from being shown against an older API process.
+The HTML page is read from disk on each browser load, but Python API code remains in the running process. The UI checks the backend feature version before enabling conversions, which prevents new controls from being shown against an older API process.
+
+Launch [`start-bridge.bat`](start-bridge.bat) normally. The launcher now verifies `/api/version` instead of treating the presence of an older API route as proof that the backend is current. If port 8765 contains an outdated bridge from this project, the launcher replaces that process and starts the current worktree code. It will not terminate an unrelated application occupying the port; in that case it reports the conflict and exits.
+
+To verify compatibility without changing a running process:
+
+```powershell
+cmd /c start-bridge.bat --check
+```
 
 Video status polling tolerates short Windows file-sharing interruptions and retries transient manifest reads. A completed output remains on disk even if the browser temporarily loses its status update; refreshing after the bridge is restarted reconnects to the latest saved job.
 
