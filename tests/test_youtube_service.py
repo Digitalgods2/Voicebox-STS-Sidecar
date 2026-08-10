@@ -57,6 +57,36 @@ class FakeBatchEngine:
         return {"ok": True, "operation": "convert-batch", "chunks_completed": len(conversions)}
 
 
+class FakeAudioProcessor:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def apply(self, input_audio, output_audio, **options):
+        self.calls.append((Path(input_audio), Path(output_audio), options))
+        with wave.open(str(input_audio), "rb") as audio:
+            frames = audio.getnframes()
+            sample_rate = audio.getframerate()
+        return {
+            "ok": True,
+            "applied": True,
+            "output_path": str(output_audio),
+            "pitch_semitones": options["pitch_semitones"],
+            "brightness_db": options["brightness_db"],
+            "tempo_preserved": True,
+            "formants_preserved": True,
+            "exact_frame_match": True,
+            "audio": {
+                "size_bytes": Path(input_audio).stat().st_size,
+                "frames": frames,
+                "sample_rate_hz": sample_rate,
+                "channels": 1,
+                "sample_width_bytes": 2,
+                "compression": "NONE",
+                "duration_seconds": round(frames / sample_rate, 6),
+            },
+        }
+
+
 class YouTubeUrlTests(unittest.TestCase):
     def test_accepts_direct_video_urls_and_removes_fragments(self) -> None:
         self.assertEqual(
@@ -154,6 +184,7 @@ class YouTubeJobPipelineTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             engine = FakeBatchEngine()
+            audio_processor = FakeAudioProcessor()
             service = YouTubeJobService(
                 root / "data",
                 FakeVoiceBox(reference),
@@ -164,12 +195,15 @@ class YouTubeJobPipelineTests(unittest.TestCase):
                 ffprobe_path=sys.executable,
                 chunk_seconds=10,
                 overlap_seconds=0.5,
+                audio_processor=audio_processor,
             )
             profile_id, sample_id = str(uuid4()), str(uuid4())
             manifest = service.create_job(
                 "https://www.youtube.com/watch?v=abc123",
                 profile_id,
                 sample_id,
+                pitch_semitones=-2,
+                brightness_db=-3,
                 authorized=True,
             )
 
@@ -184,6 +218,14 @@ class YouTubeJobPipelineTests(unittest.TestCase):
             self.assertEqual(completed["validation"]["converted_audio_frames"], source_frames)
             self.assertEqual(len(engine.calls), 1)
             self.assertEqual(len(engine.calls[0][0]), 2)
+            self.assertEqual(completed["pitch_semitones"], -2.0)
+            self.assertEqual(completed["brightness_db"], -3.0)
+            self.assertTrue(completed["post_processing"]["applied"])
+            self.assertEqual(len(audio_processor.calls), 1)
+            self.assertEqual(
+                audio_processor.calls[0][2],
+                {"pitch_semitones": -2.0, "brightness_db": -3.0, "overwrite": True},
+            )
             self.assertTrue(service.resolve_output(manifest["job_id"]).is_file())
 
     def test_job_requires_rights_confirmation(self) -> None:

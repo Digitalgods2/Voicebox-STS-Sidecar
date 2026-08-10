@@ -1,6 +1,6 @@
 # STS engine audit
 
-Audit date: 2026-08-09
+Audit date: 2026-08-10
 
 Status: OpenVoice V2 was approved, installed, and validated on 2026-08-09. The pinned source, isolated CUDA runtime, and hash-verified converter model are local. Real single-file, one-load batch, and FFmpeg reconstruction/remux tests have completed successfully.
 
@@ -50,6 +50,19 @@ The approved OpenVoice V2 installation follows this design:
 5. Official model revision `f36e7edfe1684461a8343844af60babc2efbb727` is under `data/models/openvoice-v2`; its checkpoint hash matches the audited SHA-256.
 6. Keep runtime networking disabled except for the explicit installation/download phase.
 7. Real model loading, single conversion, one-load batch conversion, exact-frame reconstruction, lossless remuxing, and full FFmpeg decode validation have passed. The remaining quality gate is a structured listening scorecard across several authorized 30-60 second sources and target profiles.
+
+## Pitch and tone post-processing audit
+
+Profile-to-profile measurements showed variable median pitch offsets and a separate increase in spectral brightness, so a hard-coded global correction was rejected. Version 0.2 adds two bounded, user-controlled post-conversion adjustments instead:
+
+- pitch: -6 to +6 semitones through FFmpeg's Rubber Band filter with tempo fixed at 1.0, formant preservation enabled, and the high-quality pitch mode;
+- brightness/tone depth: -6 to +6 dB through a 2.5 kHz high shelf;
+- peak safety: a unity-gain limiter that acts only when the adjusted signal would exceed the configured ceiling;
+- timing safety: pad/trim to the input frame count, followed by full PCM inspection and exact sample-rate/frame-count comparison before atomic replacement.
+
+The filters run after OpenVoice and, for long video, after exact-frame chunk reconstruction. This avoids repeating nonlinear DSP at overlap boundaries. Neutral settings bypass FFmpeg post-processing entirely. No new model, Python package, cloud dependency, or download was added.
+
+The configured external FFmpeg 7.1 build reports `rubberband`, `highshelf`, and `alimiter` support and was compiled with `librubberband`. FFmpeg/Rubber Band licensing therefore remains a property of the user's installed binary; this repository does not distribute either dependency.
 
 ## Primary sources
 

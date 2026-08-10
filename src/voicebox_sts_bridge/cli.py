@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
+from .audio_effects import AudioEffectsError
 from .conversion_service import ConversionService
 from .openvoice_engine import OpenVoiceEngine, OpenVoiceError
 from .settings import Settings
@@ -38,6 +39,18 @@ def _parser() -> argparse.ArgumentParser:
     convert.add_argument("sample_id")
     convert.add_argument("--output", type=Path)
     convert.add_argument("--tau", type=float, default=0.3)
+    convert.add_argument(
+        "--pitch-semitones",
+        type=float,
+        default=0.0,
+        help="Duration-preserving pitch correction from -6 to +6 semitones",
+    )
+    convert.add_argument(
+        "--brightness-db",
+        type=float,
+        default=0.0,
+        help="Tone-depth/high-shelf adjustment from -6 dB (deeper) to +6 dB (brighter)",
+    )
     convert.add_argument("--overwrite", action="store_true")
     serve = commands.add_parser("serve", help="Run the loopback-only web UI")
     serve.add_argument("--host", default=None, help="Loopback bind address")
@@ -101,11 +114,13 @@ def main(argv: list[str] | None = None) -> int:
                     args.profile_id,
                     args.sample_id,
                     tau=args.tau,
+                    pitch_semitones=args.pitch_semitones,
+                    brightness_db=args.brightness_db,
                     overwrite=args.overwrite,
                     output_audio=args.output,
                 )
             )
         return 0
-    except (ValueError, VoiceBoxError, OpenVoiceError, RuntimeError) as exc:
+    except (ValueError, VoiceBoxError, OpenVoiceError, AudioEffectsError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

@@ -21,6 +21,8 @@ from urllib.parse import parse_qs, urlsplit, urlunsplit
 from uuid import UUID, uuid4
 import wave
 
+from .audio_effects import AudioEffectsProcessor, validate_audio_adjustments
+
 
 class YouTubeJobError(RuntimeError):
     """Raised when a local YouTube video conversion pipeline cannot continue."""
@@ -186,6 +188,7 @@ class YouTubeJobService:
         chunk_seconds: float = 30.0,
         overlap_seconds: float = 1.0,
         max_download_bytes: int = 12 * 1024**3,
+        audio_processor: Any | None = None,
     ) -> None:
         if not 10.0 <= float(chunk_seconds) <= 120.0:
             raise ValueError("chunk_seconds must be between 10 and 120")
@@ -203,6 +206,10 @@ class YouTubeJobService:
         self.ffmpeg_path = str(ffmpeg_path or shutil.which("ffmpeg") or "ffmpeg")
         self.ffprobe_path = str(ffprobe_path or shutil.which("ffprobe") or "ffprobe")
         self._runner = runner
+        self.audio_processor = audio_processor or AudioEffectsProcessor(
+            ffmpeg_path=self.ffmpeg_path,
+            runner=runner,
+        )
         self._uses_default_downloader = downloader is None
         self._downloader = downloader or self._download_with_yt_dlp
         self._conversion_lock = conversion_lock or threading.Lock()
@@ -268,6 +275,8 @@ class YouTubeJobService:
         sample_id: str,
         *,
         tau: float = 0.3,
+        pitch_semitones: float = 0.0,
+        brightness_db: float = 0.0,
         authorized: bool = False,
     ) -> dict[str, Any]:
         if authorized is not True:
@@ -278,6 +287,7 @@ class YouTubeJobService:
         value_tau = float(tau)
         if not math.isfinite(value_tau) or not 0.0 <= value_tau <= 1.0:
             raise ValueError("tau must be between 0 and 1")
+        pitch, brightness = validate_audio_adjustments(pitch_semitones, brightness_db)
 
         status = self.status()
         if not status["ready"]:
@@ -299,6 +309,8 @@ class YouTubeJobService:
             "profile_id": profile,
             "sample_id": sample,
             "tau": value_tau,
+            "pitch_semitones": pitch,
+            "brightness_db": brightness,
             "authorized": True,
             "chunk_seconds": self.chunk_seconds,
             "overlap_seconds": self.overlap_seconds,
@@ -308,6 +320,8 @@ class YouTubeJobService:
                 "output_audio": "lossless FLAC",
                 "video": "stream copy (no re-encode)",
                 "model_sample_rate_hz": _MODEL_SAMPLE_RATE,
+                "pitch_engine": "FFmpeg Rubber Band high-quality, formants preserved",
+                "tone_filter": "2.5 kHz high shelf",
             },
             "output_video": str(job_dir / "output.mkv"),
             "media_url": f"/api/media/video-jobs/{job_id}",
@@ -407,8 +421,44 @@ class YouTubeJobService:
                 if converted_audio["frames"] != source_audio["frames"]:
                     raise YouTubeJobError("Reconstructed audio frame count does not match the extracted source")
 
+                post_processing: dict[str, Any] = {
+                    "ok": True,
+                    "applied": False,
+                    "pitch_semitones": manifest.get("pitch_semitones", 0.0),
+                    "pitch_scale": 1.0,
+                    "brightness_db": manifest.get("brightness_db", 0.0),
+                    "tempo_preserved": True,
+                    "formants_preserved": True,
+                    "exact_frame_match": True,
+                }
+                if manifest.get("pitch_semitones", 0.0) or manifest.get("brightness_db", 0.0):
+                    self._update(
+                        job_id,
+                        stage="post_processing_audio",
+                        progress_percent=90.0,
+                        converted_audio=converted_audio,
+                    )
+                    post_processing = self.audio_processor.apply(
+                        converted_wav,
+                        converted_wav,
+                        pitch_semitones=manifest.get("pitch_semitones", 0.0),
+                        brightness_db=manifest.get("brightness_db", 0.0),
+                        overwrite=True,
+                    )
+                    converted_audio = post_processing["audio"]
+                    if converted_audio["frames"] != source_audio["frames"]:
+                        raise YouTubeJobError(
+                            "Post-processed audio frame count does not match the extracted source"
+                        )
+
                 output_video = job_dir / "output.mkv"
-                self._update(job_id, stage="remuxing_video", progress_percent=92.0, converted_audio=converted_audio)
+                self._update(
+                    job_id,
+                    stage="remuxing_video",
+                    progress_percent=93.0,
+                    converted_audio=converted_audio,
+                    post_processing=post_processing,
+                )
                 self._run_ffmpeg(
                     [
                         self.ffmpeg_path,
@@ -480,6 +530,7 @@ class YouTubeJobService:
                         "timeline_delta_seconds": round(timeline_delta, 6),
                         "video_stream_copied": True,
                         "output_audio_codec": "flac",
+                        "pitch_and_tone_timing_preserved": True,
                     },
                 )
             except Exception as exc:

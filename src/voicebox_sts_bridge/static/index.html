@@ -56,6 +56,7 @@
       width: 100%; padding: .7rem .8rem; border: 1px solid #3a4a5e; border-radius: 10px;
       background: #0b1119; color: inherit;
     }
+    input[type="range"] { width: 100%; min-height: 32px; margin: .25rem 0 0; accent-color: var(--accent-strong); }
     button {
       border: 1px solid var(--accent-strong); border-radius: 10px; padding: .7rem 1rem;
       background: var(--accent-strong); color: #04120b; cursor: pointer; font-weight: 800;
@@ -81,6 +82,12 @@
     .checkbox-row { display: flex; align-items: flex-start; gap: .65rem; margin-top: 1rem; color: var(--muted); font-size: .88rem; line-height: 1.45; }
     .checkbox-row input { width: 1.1rem; height: 1.1rem; margin-top: .15rem; accent-color: var(--accent-strong); flex: 0 0 auto; }
     .checkbox-row label { margin: 0; font-weight: 500; }
+    .adjustment-grid { display: grid; gap: 1.1rem; margin-top: 1rem; }
+    .adjustment-control { padding: .9rem; border: 1px solid var(--border); border-radius: 12px; background: #0b1119; }
+    .adjustment-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+    .adjustment-heading label { margin: 0; }
+    .adjustment-heading output { color: var(--accent); font: 800 .9rem/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .range-scale { display: flex; justify-content: space-between; color: var(--muted); font-size: .75rem; }
     progress { width: 100%; height: .75rem; margin-top: 1rem; accent-color: var(--accent-strong); }
     video { display: block; width: 100%; max-height: 260px; margin-top: 1rem; border-radius: 10px; background: #05080d; }
     .download-link { display: block; margin-top: .8rem; padding: .7rem 1rem; border: 1px solid var(--accent-strong); border-radius: 10px; color: var(--accent); text-align: center; text-decoration: none; font-weight: 800; }
@@ -162,8 +169,35 @@
           </details>
         </section>
 
+        <section class="card" aria-labelledby="adjustments-heading">
+          <h2 id="adjustments-heading">4. Shape the converted voice</h2>
+          <p class="muted">These settings apply to both local audio and YouTube jobs. Pitch keeps tempo and formants intact; brightness changes tonal depth without changing timing.</p>
+          <div class="adjustment-grid">
+            <div class="adjustment-control">
+              <div class="adjustment-heading">
+                <label for="pitch-correction">Pitch correction</label>
+                <output id="pitch-value" for="pitch-correction">0.0 st</output>
+              </div>
+              <input id="pitch-correction" type="range" min="-6" max="6" step="0.1" value="0" disabled>
+              <div class="range-scale" aria-hidden="true"><span>−6 lower</span><span>0 original</span><span>+6 higher</span></div>
+            </div>
+            <div class="adjustment-control">
+              <div class="adjustment-heading">
+                <label for="brightness">Brightness / tone depth</label>
+                <output id="brightness-value" for="brightness">0.0 dB</output>
+              </div>
+              <input id="brightness" type="range" min="-6" max="6" step="0.5" value="0" disabled>
+              <div class="range-scale" aria-hidden="true"><span>−6 deeper</span><span>0 neutral</span><span>+6 brighter</span></div>
+            </div>
+          </div>
+          <p id="adjustment-profile-summary" class="status" role="status" aria-live="polite">Choose a profile to load its saved adjustments.</p>
+          <div class="action-row">
+            <button id="reset-adjustments" type="button" class="secondary" disabled>Reset to profile defaults</button>
+          </div>
+        </section>
+
         <section class="card" aria-labelledby="convert-heading">
-          <h2 id="convert-heading">4. Convert locally</h2>
+          <h2 id="convert-heading">5. Convert locally</h2>
           <p class="muted">Conversion becomes available after the engine, source audio, profile, and reference sample are ready.</p>
           <div class="action-row">
             <button id="convert" type="button" disabled>Convert with selected profile</button>
@@ -177,7 +211,7 @@
 
         <section class="card" aria-labelledby="youtube-heading">
           <p class="eyebrow">Long-form production</p>
-          <h2 id="youtube-heading">5. Convert a YouTube video</h2>
+          <h2 id="youtube-heading">6. Convert a YouTube video</h2>
           <p class="muted">Downloads one authorized video, converts its soundtrack in overlapping lossless chunks, and remuxes the exact-length result without re-encoding the video.</p>
           <p id="youtube-engine" class="status" role="status" aria-live="polite">Checking YouTube tools…</p>
           <label for="youtube-url">YouTube video URL</label>
@@ -246,6 +280,12 @@
     const uploadStatus = document.querySelector('#upload-status');
     const uploadDetails = document.querySelector('#upload-details');
     const uploadResult = document.querySelector('#upload-result');
+    const pitchCorrection = document.querySelector('#pitch-correction');
+    const pitchValue = document.querySelector('#pitch-value');
+    const brightness = document.querySelector('#brightness');
+    const brightnessValue = document.querySelector('#brightness-value');
+    const adjustmentProfileSummary = document.querySelector('#adjustment-profile-summary');
+    const resetAdjustmentsButton = document.querySelector('#reset-adjustments');
     const convertButton = document.querySelector('#convert');
     const conversionSummary = document.querySelector('#conversion-summary');
     const conversionDetails = document.querySelector('#conversion-details');
@@ -276,6 +316,8 @@
     let referenceLoadToken = 0;
     let videoPollTimer = null;
     let activeVideoJob = null;
+    let profileRecords = new Map();
+    const adjustmentStorageKey = 'voicebox-sts-profile-adjustments-v1';
 
     async function json(url, options) {
       const response = await fetch(url, options);
@@ -308,6 +350,77 @@
 
     function selectedText(select) {
       return select.selectedOptions[0]?.textContent || '';
+    }
+
+    function signed(value, digits = 1) {
+      const number = Number(value) || 0;
+      if (number === 0) return number.toFixed(digits);
+      return `${number > 0 ? '+' : '−'}${Math.abs(number).toFixed(digits)}`;
+    }
+
+    function adjustmentValues() {
+      return {
+        pitch_semitones: Number(pitchCorrection.value) || 0,
+        brightness_db: Number(brightness.value) || 0
+      };
+    }
+
+    function renderAdjustmentValues() {
+      const values = adjustmentValues();
+      pitchValue.textContent = `${signed(values.pitch_semitones)} st`;
+      brightnessValue.textContent = `${signed(values.brightness_db)} dB`;
+    }
+
+    function readAdjustmentStore() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(adjustmentStorageKey) || '{}');
+        return parsed && typeof parsed === 'object' ? parsed : {};
+      } catch { return {}; }
+    }
+
+    function writeAdjustmentStore(store) {
+      try { localStorage.setItem(adjustmentStorageKey, JSON.stringify(store)); }
+      catch { /* The controls still work when browser storage is unavailable. */ }
+    }
+
+    function profilePitchDefault(record) {
+      const effect = record?.effects_chain?.find(item =>
+        item?.type === 'pitch_shift' && item.enabled !== false && Number.isFinite(Number(item.params?.semitones))
+      );
+      return Math.max(-6, Math.min(6, Number(effect?.params?.semitones) || 0));
+    }
+
+    function loadProfileAdjustments() {
+      const record = profileRecords.get(profile.value);
+      const available = Boolean(record);
+      pitchCorrection.disabled = !available;
+      brightness.disabled = !available;
+      resetAdjustmentsButton.disabled = !available;
+      if (!available) {
+        pitchCorrection.value = '0';
+        brightness.value = '0';
+        adjustmentProfileSummary.textContent = 'Choose a profile to load its saved adjustments.';
+        renderAdjustmentValues();
+        return;
+      }
+      const defaultPitch = profilePitchDefault(record);
+      const saved = readAdjustmentStore()[profile.value];
+      const savedPitch = Number(saved?.pitch_semitones);
+      const savedBrightness = Number(saved?.brightness_db);
+      pitchCorrection.value = Number.isFinite(savedPitch) ? String(Math.max(-6, Math.min(6, savedPitch))) : String(defaultPitch);
+      brightness.value = Number.isFinite(savedBrightness) ? String(Math.max(-6, Math.min(6, savedBrightness))) : '0';
+      adjustmentProfileSummary.textContent = defaultPitch
+        ? `VoiceBox profile pitch default detected: ${signed(defaultPitch)} semitones. Your settings are saved for this profile.`
+        : 'Neutral VoiceBox profile default. Your settings are saved separately for this profile.';
+      renderAdjustmentValues();
+    }
+
+    function saveProfileAdjustments() {
+      renderAdjustmentValues();
+      if (!profile.value) return;
+      const store = readAdjustmentStore();
+      store[profile.value] = adjustmentValues();
+      writeAdjustmentStore(store);
     }
 
     function updateActions() {
@@ -442,6 +555,7 @@
         preparing_chunks: 'Preparing duration-aligned chunks',
         converting_chunks: 'Converting speech chunks on CUDA',
         reconstructing_audio: 'Crossfading and reconstructing exact timing',
+        post_processing_audio: 'Applying pitch and tone adjustments',
         remuxing_video: 'Remuxing copied video with lossless audio',
         validating_output: 'Fully decoding and validating the finished video',
         completed: 'Completed',
@@ -493,6 +607,7 @@
         const status = await json('/api/voicebox/health');
         setStatus(health, `${status.status || 'Available'} · ${status.gpu_type || 'GPU status unavailable'}`, 'ok');
         const profiles = (await json('/api/profiles')).filter(item => item.voice_type === 'cloned' && item.sample_count > 0);
+        profileRecords = new Map(profiles.map(item => [item.id, item]));
         profile.replaceChildren(option('', profiles.length ? 'Choose a cloned profile' : 'No cloned profiles with samples found'));
         profiles.forEach(item => {
           const count = item.sample_count;
@@ -533,7 +648,10 @@
       if (previousVideoJob) pollVideoJob(previousVideoJob);
     }
 
-    profile.addEventListener('change', loadSamples);
+    profile.addEventListener('change', () => {
+      loadProfileAdjustments();
+      loadSamples();
+    });
     sample.addEventListener('change', () => {
       referenceLoadToken += 1;
       fetchButton.disabled = !sample.value;
@@ -542,6 +660,15 @@
     });
     youtubeUrl.addEventListener('input', updateActions);
     youtubeAuthorized.addEventListener('change', updateActions);
+    pitchCorrection.addEventListener('input', saveProfileAdjustments);
+    brightness.addEventListener('input', saveProfileAdjustments);
+    resetAdjustmentsButton.addEventListener('click', () => {
+      if (!profile.value) return;
+      const store = readAdjustmentStore();
+      delete store[profile.value];
+      writeAdjustmentStore(store);
+      loadProfileAdjustments();
+    });
 
     chooseSourceButton.addEventListener('click', () => source.click());
     source.addEventListener('change', async () => {
@@ -593,7 +720,9 @@
 
     convertButton.addEventListener('click', async () => {
       convertButton.disabled = true;
-      setStatus(conversionSummary, 'Converting locally on CUDA…');
+      const adjustments = adjustmentValues();
+      const hasAdjustments = adjustments.pitch_semitones || adjustments.brightness_db;
+      setStatus(conversionSummary, hasAdjustments ? 'Converting on CUDA, then applying pitch and tone adjustments…' : 'Converting locally on CUDA…');
       try {
         const body = await json('/api/conversions', {
           method: 'POST',
@@ -602,7 +731,8 @@
             input_id: uploadedInput.input_id,
             profile_id: profile.value,
             sample_id: sample.value,
-            tau: 0.3
+            tau: 0.3,
+            ...adjustments
           })
         });
         if (!body.job_id) throw new Error('Conversion completed without a job ID.');
@@ -627,6 +757,7 @@
       youtubeProgress.value = 0;
       setStatus(youtubeSummary, 'Creating local video conversion job…');
       try {
+        const adjustments = adjustmentValues();
         const job = await json('/api/youtube/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -635,6 +766,7 @@
             profile_id: profile.value,
             sample_id: sample.value,
             tau: 0.3,
+            ...adjustments,
             authorized: youtubeAuthorized.checked
           })
         });

@@ -26,6 +26,8 @@ Implemented:
 - one-model-load batch conversion for long audio;
 - 256-sample-aligned chunks with one-second context overlap and crossfades;
 - exact reconstructed PCM frame-count enforcement;
+- profile-aware pitch correction and brightness/tone-depth controls;
+- high-quality, formant-preserving pitch DSP with exact frame-count enforcement;
 - unchanged video-stream remuxing with lossless FLAC audio in Matroska;
 - complete FFmpeg decode validation before a video job is marked complete;
 - responsive desktop/mobile web UI and a one-click Windows launcher.
@@ -69,7 +71,8 @@ flowchart LR
     REF --> OV
     CHUNKS --> OV
     OV --> STITCH[Exact-frame crossfade reconstruction]
-    STITCH --> MUX[FFmpeg stream-copy remux]
+    STITCH --> DSP[Pitch + tone DSP\nexact frame count]
+    DSP --> MUX[FFmpeg stream-copy remux]
     MEDIA --> MUX
     MUX --> OUT[Validated WAV or MKV output]
 ```
@@ -81,6 +84,7 @@ flowchart LR
 | `OpenVoiceEngine` | Bridge between the main Python environment and isolated CUDA inference worker |
 | `openvoice_worker.py` | Safe model loading, single conversion, and one-load batch conversion |
 | `ConversionService` | Serialized single-file jobs and atomic job manifests |
+| `AudioEffectsProcessor` | Formant-preserving pitch shift, high-shelf tone shaping, peak limiting, and exact-frame validation |
 | `YouTubeJobService` | URL validation, download, extraction, chunking, conversion, reconstruction, remuxing, and decode validation |
 | FastAPI application | Loopback API, background jobs, byte-range media serving, and web UI |
 
@@ -96,6 +100,9 @@ flowchart LR
 - Each chunk includes approximately one second of context on either side.
 - Adjacent converted chunks are crossfaded over the shared context.
 - The reconstructed WAV must contain exactly the same number of PCM frames as the duration-bounded extracted WAV.
+- Pitch correction is a constant shift from -6 to +6 semitones using FFmpeg's high-quality Rubber Band filter. Tempo remains 1.0 and formant preservation is enabled.
+- Brightness/tone depth is a -6 to +6 dB high shelf centered at 2.5 kHz. Negative values sound deeper/darker; positive values sound brighter.
+- An adjustment is applied once to the fully converted track, followed by a transparent safety limiter only when necessary. The processor pads or trims to the exact original converted frame count and rejects any sample-rate or frame-count change.
 - The final output timeline must be within 50 milliseconds of the probed video timeline.
 - FFmpeg fully decodes the output video and audio streams before completion is reported.
 
@@ -281,13 +288,26 @@ cmd /c start-bridge.bat
 
 A clean 15–30 second single-speaker reference is generally more useful than a longer noisy recording. The currently validated VoiceBox samples are approximately 24–29 seconds.
 
+### Shape pitch and tone
+
+The controls apply to both local-audio and YouTube jobs:
+
+- **Pitch correction** shifts the whole converted performance from -6 to +6 semitones without changing its speed. This is a manual pitch offset, not Auto-Tune or note-by-note correction.
+- **Brightness / tone depth** applies up to 6 dB of high-frequency shelf adjustment. Move left for a darker/deeper result or right for a brighter result.
+- Settings are saved locally in the browser for each VoiceBox profile. Switching voices restores that voice's last values.
+- When VoiceBox reports an enabled profile `pitch_shift` effect, the sidecar uses it as that profile's initial pitch default because OpenVoice does not otherwise apply VoiceBox's TTS effects chain.
+- **Reset to profile defaults** clears the saved values for the selected voice and restores its detected VoiceBox pitch setting plus neutral tone.
+
+Start with small changes and audition the result. A range of roughly 0.5 to 2 semitones or 1 to 3 dB is usually a better diagnostic starting point than an extreme setting. Set both sliders to zero for the original OpenVoice output.
+
 ### Convert a local audio file
 
 1. Click **Choose source audio…** to open the Windows file picker.
 2. Choose an authorized `.wav`, `.mp3`, `.flac`, `.m4a`, `.aac`, `.ogg`, `.opus`, or `.wma` file.
 3. Audition the uploaded source in the right-hand player.
-4. Click **Convert with selected profile**.
-5. After completion, audition the result and expand the job details if needed.
+4. Set pitch and tone as needed, or leave both at zero.
+5. Click **Convert with selected profile**.
+6. After completion, audition the result and expand the job details if needed.
 
 Uploads are streamed to UUID-named files under `data/inputs/`. The default upload safety limit is 1 GiB.
 
@@ -295,11 +315,12 @@ Uploads are streamed to UUID-named files under `data/inputs/`. The default uploa
 
 1. Select the target VoiceBox profile.
 2. Paste a direct HTTPS YouTube video URL. Watch, Shorts, Live-video, Embed, and `youtu.be` links are accepted when they identify one video.
-3. Confirm that you own the video or have permission to process it.
-4. Click **Download and convert video**.
-5. Leave the bridge console running. The page displays the current download, extraction, conversion, reconstruction, remux, and validation stages.
-6. A page refresh reconnects to the latest job stored in browser local storage.
-7. When complete, use the right-hand video player or save the MKV master.
+3. Set pitch and tone as needed.
+4. Confirm that you own the video or have permission to process it.
+5. Click **Download and convert video**.
+6. Leave the bridge console running. The page displays the current download, extraction, conversion, reconstruction, post-processing, remux, and validation stages.
+7. A page refresh reconnects to the latest job stored in browser local storage.
+8. When complete, use the right-hand video player or save the MKV master.
 
 The URL validator rejects arbitrary hosts, HTTP URLs, credentials, custom ports, playlists without a direct video, channels, and search pages. yt-dlp is configured for one item and ignores user-level yt-dlp configuration files.
 
@@ -313,9 +334,10 @@ Each YouTube job passes through these durable stages:
 4. **Preparing chunks** — approximately 30-second cores receive one-second left/right context; all inference inputs are padded to multiples of 256 samples.
 5. **Converting chunks** — one isolated worker loads the OpenVoice model and target embedding once, then converts every chunk sequentially on the GPU.
 6. **Reconstructing** — overlapping converted regions are linearly crossfaded and cropped to the exact source frame count.
-7. **Remuxing** — FFmpeg copies the original video stream and adds lossless FLAC audio in MKV.
-8. **Validating** — FFprobe verifies codecs and duration; FFmpeg decodes both streams with error-on-failure behavior.
-9. **Completed** — the final media route becomes available only after every check passes.
+7. **Applying pitch and tone** — optional adjustments run once on the complete reconstructed track; output is forced back to the exact source frame count.
+8. **Remuxing** — FFmpeg copies the original video stream and adds lossless FLAC audio in MKV.
+9. **Validating** — FFprobe verifies codecs and duration; FFmpeg decodes both streams with error-on-failure behavior.
+10. **Completed** — the final media route becomes available only after every check passes.
 
 GPU jobs share one lock, so local-file and YouTube conversions cannot compete for VRAM.
 
@@ -336,6 +358,7 @@ python -m voicebox_sts_bridge engine-status
 python -m voicebox_sts_bridge engine-probe
 python -m voicebox_sts_bridge convert SOURCE_AUDIO PROFILE_ID SAMPLE_ID
 python -m voicebox_sts_bridge convert SOURCE_AUDIO PROFILE_ID SAMPLE_ID --output OUTPUT.wav --tau 0.3
+python -m voicebox_sts_bridge convert SOURCE_AUDIO PROFILE_ID SAMPLE_ID --pitch-semitones -1.5 --brightness-db -2
 python -m voicebox_sts_bridge serve --host 127.0.0.1 --port 8765
 ```
 
@@ -371,9 +394,13 @@ Interactive OpenAPI documentation is available at <http://127.0.0.1:8765/docs> w
   "profile_id": "VOICEBOX_PROFILE_UUID",
   "sample_id": "VOICEBOX_SAMPLE_UUID",
   "tau": 0.3,
+  "pitch_semitones": -1.5,
+  "brightness_db": -2.0,
   "authorized": true
 }
 ```
+
+Both adjustment fields default to `0.0` and accept values from `-6.0` through `+6.0`. Local `/api/conversions` requests accept the same fields. Completed local and video manifests record the requested values, whether DSP ran, the filter configuration, and the verified output audio geometry.
 
 ## Configuration
 
@@ -415,6 +442,7 @@ These intermediate files are intentionally retained for debugging, quality revie
 config/                              # Pinned dependency and model provenance
 docs/                                # Engine audit and reference CUDA hardware benchmark notes
 src/voicebox_sts_bridge/             # Application package
+src/voicebox_sts_bridge/audio_effects.py # Exact-duration pitch and tone DSP
 src/voicebox_sts_bridge/static/      # Single-page web UI
 tests/                               # Unit and pipeline tests
 AGENTS.md                            # Project architecture and operating constraints
@@ -462,7 +490,7 @@ $script = [regex]::Match($html, '<script>([\s\S]*?)</script>').Groups[1].Value
 $script | node --check
 ```
 
-Current suite status: **44 tests passing**.
+Current suite status: **53 tests passing**.
 
 ## Security and privacy
 
@@ -547,6 +575,16 @@ ffprobe -version
 
 The app requires yt-dlp 2026.7.4 or newer within the 2026 series and Node 22 or newer.
 
+### Pitch or tone processing fails
+
+The installed FFmpeg build must expose the `rubberband`, `highshelf`, and `alimiter` audio filters:
+
+```powershell
+ffmpeg -hide_banner -filters | findstr /i "rubberband highshelf alimiter"
+```
+
+A compatible FFmpeg build must include all three filters. If `rubberband` is absent, install an FFmpeg build compiled with `librubberband`; setting both controls to zero bypasses this post-processing stage.
+
 ### A YouTube download fails
 
 - Confirm the URL identifies one public video and begins with `https://`.
@@ -576,6 +614,7 @@ $env:BRIDGE_PORT = "8877"
 - OpenVoice source and the audited OpenVoice V2 converter model are MIT licensed.
 - yt-dlp is installed as a Python dependency and retains its upstream license.
 - FFmpeg licensing depends on the distributed build and enabled codecs; this repository does not redistribute FFmpeg.
+- Pitch shifting uses the `rubberband` filter in the user's external FFmpeg build. Rubber Band and FFmpeg license obligations depend on that installed build; neither binary nor library is bundled by this repository.
 - CUDA-enabled PyTorch retains its upstream license and is not committed to this repository.
 - Seed-VC is not bundled. Its GPL-3.0 licensing and archived upstream status are documented in [`docs/engine-audit.md`](docs/engine-audit.md).
 - This repository does not currently declare a license for the sidecar's own source. Because the GitHub repository is private, no permission to redistribute should be inferred.

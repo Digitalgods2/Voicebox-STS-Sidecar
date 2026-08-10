@@ -9,6 +9,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
+from .audio_effects import AudioEffectsError, MAX_BRIGHTNESS_DB, MAX_PITCH_SEMITONES
 from .conversion_service import ConversionService
 from .media_store import MediaStore
 from .openvoice_engine import OpenVoiceEngine, OpenVoiceError
@@ -28,6 +29,10 @@ class ConversionRequest(BaseModel):
     profile_id: str
     sample_id: str
     tau: float = Field(default=0.3, ge=0.0, le=1.0)
+    pitch_semitones: float = Field(
+        default=0.0, ge=-MAX_PITCH_SEMITONES, le=MAX_PITCH_SEMITONES
+    )
+    brightness_db: float = Field(default=0.0, ge=-MAX_BRIGHTNESS_DB, le=MAX_BRIGHTNESS_DB)
 
 
 class YouTubeJobRequest(BaseModel):
@@ -35,12 +40,16 @@ class YouTubeJobRequest(BaseModel):
     profile_id: str
     sample_id: str
     tau: float = Field(default=0.3, ge=0.0, le=1.0)
+    pitch_semitones: float = Field(
+        default=0.0, ge=-MAX_PITCH_SEMITONES, le=MAX_PITCH_SEMITONES
+    )
+    brightness_db: float = Field(default=0.0, ge=-MAX_BRIGHTNESS_DB, le=MAX_BRIGHTNESS_DB)
     authorized: bool = False
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
-    app = FastAPI(title="VoiceBox STS Bridge", version="0.1.0")
+    app = FastAPI(title="VoiceBox STS Bridge", version="0.2.0")
     client = VoiceBoxClient(
         settings.voicebox_base_url,
         timeout_seconds=settings.request_timeout_seconds,
@@ -178,6 +187,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 request.profile_id,
                 request.sample_id,
                 tau=request.tau,
+                pitch_semitones=request.pitch_semitones,
+                brightness_db=request.brightness_db,
             )
         except (ValueError, FileNotFoundError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -186,6 +197,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except VoiceBoxError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         except OpenVoiceError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except AudioEffectsError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.get("/api/youtube/status")
@@ -203,6 +216,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 request.profile_id,
                 request.sample_id,
                 tau=request.tau,
+                pitch_semitones=request.pitch_semitones,
+                brightness_db=request.brightness_db,
                 authorized=request.authorized,
             )
         except ValueError as exc:

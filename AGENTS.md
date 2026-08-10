@@ -119,12 +119,13 @@ Only after the proof of concept succeeds should the project add long-file chunki
 
 ## Current status
 
-The initial proof of concept and its long-video extension are implemented and validated locally as of 2026-08-09.
+The initial proof of concept and its long-video extension are implemented and validated locally as of 2026-08-10.
 
 - OpenVoice V2 is installed in an isolated Python 3.10/CUDA environment from pinned source and a hash-verified converter checkpoint.
 - A real 16.56-second source was converted successfully on the reference CUDA hardware, fully decoded, and measured for runtime and peak VRAM.
 - The FastAPI service can discover VoiceBox profiles, cache reference WAV files, accept browser uploads, convert local audio, and serve source/reference/output media with byte-range support.
 - The web UI automatically selects a sole reference sample, provides native file pickers, and includes persistent source, reference, output-audio, and output-video players.
+- The UI provides per-profile pitch correction and brightness/tone-depth controls. Pitch uses high-quality, formant-preserving Rubber Band processing; tone uses a high shelf; both paths enforce the original converted frame count before publishing output.
 - The YouTube workflow validates authorized URLs, downloads one video locally, extracts full-quality PCM, converts aligned overlapping chunks with one model load, reconstructs the exact source frame count, copies the original video stream, writes lossless FLAC audio to MKV, and fully decodes the result before reporting success.
 - Durable manifests and progress files survive page refreshes. Automatic continuation after the bridge process itself exits remains future work.
 - Runtime environments, upstream source, model weights, reference caches, source media, and generated outputs remain ignored local data and are not part of the repository.

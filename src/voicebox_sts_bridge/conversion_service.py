@@ -10,6 +10,8 @@ import threading
 from typing import Any
 from uuid import UUID, uuid4
 
+from .audio_effects import AudioEffectsProcessor, validate_audio_adjustments
+
 
 def _utc_now() -> str:
     """Return an unambiguous, JSON-friendly UTC timestamp."""
@@ -39,10 +41,12 @@ class ConversionService:
         engine: Any,
         *,
         conversion_lock: threading.Lock | None = None,
+        audio_processor: Any | None = None,
     ) -> None:
         self.data_dir = Path(data_dir).expanduser().resolve()
         self.voicebox_client = voicebox_client
         self.engine = engine
+        self.audio_processor = audio_processor or AudioEffectsProcessor()
         self._conversion_lock = conversion_lock or threading.Lock()
 
     def convert(
@@ -52,10 +56,13 @@ class ConversionService:
         sample_id: str,
         *,
         tau: float = 0.3,
+        pitch_semitones: float = 0.0,
+        brightness_db: float = 0.0,
         overwrite: bool = False,
         output_audio: str | Path | None = None,
     ) -> dict[str, Any]:
         """Fetch the exact reference, run OpenVoice, and persist job state."""
+        pitch, brightness = validate_audio_adjustments(pitch_semitones, brightness_db)
         with self._conversion_lock:
             job_id = str(uuid4())
             jobs_dir = self.data_dir / "jobs"
@@ -83,6 +90,8 @@ class ConversionService:
                 "profile_id": str(profile_id),
                 "sample_id": str(sample_id),
                 "tau": _json_safe(tau),
+                "pitch_semitones": pitch,
+                "brightness_db": brightness,
                 "overwrite": bool(overwrite),
                 "output_audio": str(destination),
             }
@@ -104,8 +113,38 @@ class ConversionService:
                     overwrite=overwrite,
                 )
 
-                completed_at = _utc_now()
                 safe_result = _json_safe(result)
+                post_processing: dict[str, Any] = {
+                    "ok": True,
+                    "applied": False,
+                    "pitch_semitones": pitch,
+                    "pitch_scale": 1.0,
+                    "brightness_db": brightness,
+                    "tempo_preserved": True,
+                    "formants_preserved": True,
+                    "exact_frame_match": True,
+                }
+                if pitch or brightness:
+                    result_output = (
+                        safe_result.get("output_path", destination)
+                        if isinstance(safe_result, dict)
+                        else destination
+                    )
+                    post_processing = _json_safe(
+                        self.audio_processor.apply(
+                            result_output,
+                            result_output,
+                            pitch_semitones=pitch,
+                            brightness_db=brightness,
+                            overwrite=True,
+                        )
+                    )
+                    if isinstance(safe_result, dict):
+                        safe_result["audio"] = post_processing["audio"]
+                if isinstance(safe_result, dict):
+                    safe_result["post_processing"] = post_processing
+
+                completed_at = _utc_now()
                 manifest.update(
                     status="completed",
                     updated_at=completed_at,
