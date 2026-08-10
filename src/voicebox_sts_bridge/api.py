@@ -48,6 +48,18 @@ class YouTubeJobRequest(BaseModel):
     authorized: bool = False
 
 
+class LocalVideoJobRequest(BaseModel):
+    video_input_id: str
+    profile_id: str
+    sample_id: str
+    tau: float = Field(default=0.3, ge=0.0, le=1.0)
+    pitch_semitones: float = Field(
+        default=0.0, ge=-MAX_PITCH_SEMITONES, le=MAX_PITCH_SEMITONES
+    )
+    brightness_db: float = Field(default=0.0, ge=-MAX_BRIGHTNESS_DB, le=MAX_BRIGHTNESS_DB)
+    authorized: bool = False
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     app = FastAPI(title="VoiceBox STS Bridge", version=__version__)
@@ -101,6 +113,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "audio-adjustments-v1",
                 "resilient-video-polling-v1",
                 "youtube-source-cache-v1",
+                "local-video-upload-v1",
             ],
         }
 
@@ -152,6 +165,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except OSError as exc:
             raise HTTPException(status_code=500, detail=f"Could not store input: {exc}") from exc
 
+    @app.post("/api/video-inputs")
+    async def upload_video_input(
+        request: Request,
+        filename: str = Query(min_length=1, max_length=255),
+    ) -> dict[str, Any]:
+        async def chunks() -> Any:
+            async for chunk in request.stream():
+                if chunk:
+                    yield chunk
+
+        try:
+            return await media.store_video_input(
+                filename, chunks(), request.headers.get("content-type")
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"Could not store video: {exc}") from exc
+
     def media_response(path: Path) -> FileResponse:
         media_type, _ = mimetypes.guess_type(path.name)
         return FileResponse(
@@ -168,6 +200,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def input_media(input_id: str) -> FileResponse:
         try:
             return media_response(media.resolve_input(input_id))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/media/video-inputs/{video_input_id}", response_class=FileResponse)
+    def video_input_media(video_input_id: str) -> FileResponse:
+        try:
+            return media_response(media.resolve_video_input(video_input_id))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except FileNotFoundError as exc:
@@ -217,6 +258,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def youtube_status() -> dict[str, Any]:
         return youtube.status()
 
+    @app.get("/api/video/status")
+    def video_status() -> dict[str, Any]:
+        return youtube.video_status()
+
     @app.get("/api/youtube/cache")
     def youtube_cache_status() -> dict[str, Any]:
         return youtube.cache_status()
@@ -261,8 +306,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except YouTubeJobError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    @app.post("/api/video/jobs", status_code=202)
+    def create_local_video_job(
+        request: LocalVideoJobRequest,
+        background_tasks: BackgroundTasks,
+    ) -> dict[str, Any]:
+        try:
+            upload = media.describe_video_input(request.video_input_id)
+            job = youtube.create_local_job(
+                media.resolve_video_input(request.video_input_id),
+                request.video_input_id,
+                str(upload["original_name"]),
+                request.profile_id,
+                request.sample_id,
+                tau=request.tau,
+                pitch_semitones=request.pitch_semitones,
+                brightness_db=request.brightness_db,
+                authorized=request.authorized,
+            )
+        except (ValueError, FileNotFoundError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except YouTubeJobError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        background_tasks.add_task(youtube.run_job, job["job_id"])
+        return job
+
+    @app.get("/api/video/jobs/{job_id}")
+    def video_job(job_id: str) -> dict[str, Any]:
+        try:
+            return youtube.get_job(job_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except YouTubeJobError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     @app.get("/api/media/video-jobs/{job_id}", response_class=FileResponse)
-    def youtube_output_media(job_id: str) -> FileResponse:
+    def video_output_media(job_id: str) -> FileResponse:
         try:
             return media_response(youtube.resolve_output(job_id))
         except ValueError as exc:

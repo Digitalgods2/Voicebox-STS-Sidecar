@@ -2,12 +2,12 @@
 
 Local, loopback-only speech-to-speech conversion for [Jamie Pine's VoiceBox](https://github.com/jamiepine/voicebox), powered by a pinned OpenVoice V2 runtime.
 
-VoiceBox STS Sidecar accepts an existing speech recording or an authorized YouTube video, uses a cloned VoiceBox profile as the target voice, and performs voice conversion locally on an NVIDIA GPU. The source performance supplies timing, pacing, emphasis, and emotion; the selected VoiceBox reference supplies the target speaker identity.
+VoiceBox STS Sidecar accepts an existing speech recording, a video imported from the local PC, or an authorized YouTube video. It uses a cloned VoiceBox profile as the target voice and performs voice conversion locally on an NVIDIA GPU. The source performance supplies timing, pacing, emphasis, and emotion; the selected VoiceBox reference supplies the target speaker identity.
 
 The Python package and on-screen application currently use the historical name **VoiceBox STS Bridge**. The GitHub repository is named **Voicebox-STS-Sidecar** because the application runs alongside VoiceBox without modifying it.
 
 > [!IMPORTANT]
-> Use only voices and source media that you own or have permission to process. YouTube jobs require an explicit rights confirmation. This project does not bypass DRM, account restrictions, or access controls.
+> Use only voices and source media that you own or have permission to process. Local-video and YouTube jobs require an explicit rights confirmation. This project does not bypass DRM, account restrictions, or access controls.
 
 ## Status
 
@@ -23,6 +23,8 @@ Implemented:
 - atomic audio job manifests and validated WAV outputs;
 - direct YouTube video downloads through a security-pinned yt-dlp runtime;
 - a validated single-video YouTube download cache that avoids repeat network requests;
+- streamed local-video imports with a native file picker, upload progress, and source preview;
+- one shared conversion, timing, remux, and validation pipeline for imported and downloaded video;
 - queued background video jobs with page-refresh recovery;
 - one-model-load batch conversion for long audio;
 - 256-sample-aligned chunks with one-second context overlap and crossfades;
@@ -297,7 +299,7 @@ A clean 15–30 second single-speaker reference is generally more useful than a 
 
 ### Shape pitch and tone
 
-The controls apply to both local-audio and YouTube jobs:
+The controls apply to local-audio, imported-video, and YouTube jobs:
 
 - **Pitch correction** shifts the whole converted performance from -6 to +6 semitones without changing its speed. This is a manual pitch offset, not Auto-Tune or note-by-note correction.
 - **Brightness / tone depth** applies up to 6 dB of high-frequency shelf adjustment. Move left for a darker/deeper result or right for a brighter result.
@@ -333,13 +335,25 @@ The URL validator rejects arbitrary hosts, HTTP URLs, credentials, custom ports,
 
 The cache is keyed by the canonical YouTube video ID, so equivalent Watch, Shorts, Embed, Live-recording, and `youtu.be` links reuse the same source. The cache panel shows its title, size, and reuse count. **Clear cache** removes only the cached source; completed MKV outputs and durable job records are preserved. Rights confirmation remains mandatory on cache hits.
 
+### Convert a video from this PC
+
+1. Select the target VoiceBox profile and set pitch/tone as needed.
+2. In **Import a video from this PC**, click **Choose video from this PC**. The native Windows file picker accepts common containers including MP4, MKV, MOV, WebM, AVI, M4V, WMV, MPEG, TS, and M2TS.
+3. Watch the import progress and use the right-hand local-video player to inspect the selected source. If the browser cannot decode its original container or codec, FFmpeg can still process it.
+4. Confirm that you own the video or have permission to process it.
+5. Click **Convert imported video** and leave the bridge console running.
+6. Follow extraction, chunk conversion, exact-timing reconstruction, optional pitch/tone processing, lossless remux, and full validation progress.
+7. When complete, play or save the same MKV master used by the YouTube workflow.
+
+Imported videos are streamed to UUID-named files under `data/video_inputs/`; the browser never sends an arbitrary filesystem path to the conversion API. The default video upload safety limit is 12 GiB. Imported sources do not affect the single-video YouTube download cache.
+
 ## Long-video pipeline
 
-Each YouTube job passes through these durable stages:
+Each video job passes through these durable stages. YouTube jobs use the download-cache acquisition steps below; imported-video jobs instead validate their contained UUID-addressed upload, skip all downloader/network work, and then join the identical pipeline at audio extraction:
 
 1. **Queued** — an atomic manifest is created under `data/video_jobs/JOB_ID/`.
-2. **Checking the download cache** — the canonical video ID is compared with the one validated active entry.
-3. **Reusing or downloading** — a hit uses the cached media without contacting YouTube; a miss downloads into staging, validates ID/size/streams/checksum, then atomically replaces the active cache.
+2. **Acquiring the source** — a YouTube job checks the canonical video ID against the validated cache; an imported-video job validates its project-contained upload.
+3. **Validating media streams** — a YouTube cache miss downloads and publishes safely, while a local job skips the network; both paths require video and audio streams before extraction.
 4. **Extracting audio** — FFmpeg bounds the extraction to the probed video timeline and creates 22.05 kHz mono PCM.
 5. **Preparing chunks** — approximately 30-second cores receive one-second left/right context; all inference inputs are padded to multiples of 256 samples.
 6. **Converting chunks** — one isolated worker loads the OpenVoice model and target embedding once, then converts every chunk sequentially on the GPU.
@@ -349,7 +363,7 @@ Each YouTube job passes through these durable stages:
 10. **Validating** — FFprobe verifies codecs and duration; FFmpeg decodes both streams with error-on-failure behavior.
 11. **Completed** — the final media route becomes available only after every check passes.
 
-GPU jobs share one lock, so local-file and YouTube conversions cannot compete for VRAM.
+GPU jobs share one lock, so local audio, imported video, and YouTube conversions cannot compete for VRAM. Both video entry points also share one pipeline lock, so only one video job runs at a time.
 
 ## CLI reference
 
@@ -372,7 +386,7 @@ python -m voicebox_sts_bridge convert SOURCE_AUDIO PROFILE_ID SAMPLE_ID --pitch-
 python -m voicebox_sts_bridge serve --host 127.0.0.1 --port 8765
 ```
 
-The YouTube workflow is intentionally web/API based because it is asynchronous and exposes stage/chunk progress.
+The imported-video and YouTube workflows are intentionally web/API based because they are asynchronous and expose upload/stage/chunk progress.
 
 ## HTTP API
 
@@ -388,12 +402,17 @@ Interactive OpenAPI documentation is available at <http://127.0.0.1:8765/docs> w
 | `POST` | `/api/engine/probe` | Load the model and probe CUDA |
 | `POST` | `/api/inputs?filename=...` | Stream a raw browser-selected audio file into local storage |
 | `POST` | `/api/conversions` | Run one synchronous local-audio conversion |
+| `POST` | `/api/video-inputs?filename=...` | Stream a raw browser-selected video into isolated local storage |
+| `GET` | `/api/video/status` | Check FFmpeg/FFprobe readiness for imported video |
+| `POST` | `/api/video/jobs` | Create an authorized asynchronous imported-video job |
+| `GET` | `/api/video/jobs/{job_id}` | Read either kind of durable video job status and chunk progress |
 | `GET` | `/api/youtube/status` | Check yt-dlp, Node, FFmpeg, and FFprobe readiness |
 | `GET` | `/api/youtube/cache` | Read the validated single-video download cache status |
 | `DELETE` | `/api/youtube/cache` | Clear the cached source without deleting completed outputs |
 | `POST` | `/api/youtube/jobs` | Create an authorized asynchronous video job |
 | `GET` | `/api/youtube/jobs/{job_id}` | Read durable job status and chunk progress |
 | `GET` | `/api/media/inputs/{input_id}` | Stream an uploaded source with byte-range support |
+| `GET` | `/api/media/video-inputs/{video_input_id}` | Stream an imported video with byte-range support |
 | `GET` | `/api/media/outputs/{job_id}` | Stream a converted WAV |
 | `GET` | `/api/media/references/{profile_id}/{sample_id}` | Stream a cached VoiceBox reference |
 | `GET` | `/api/media/video-jobs/{job_id}` | Stream or save a completed MKV master |
@@ -412,7 +431,7 @@ Interactive OpenAPI documentation is available at <http://127.0.0.1:8765/docs> w
 }
 ```
 
-Both adjustment fields default to `0.0` and accept values from `-6.0` through `+6.0`. Local `/api/conversions` requests accept the same fields. Completed local and video manifests record the requested values, whether DSP ran, the filter configuration, and the verified output audio geometry.
+An imported-video job uses the same fields but replaces `youtube_url` with the `video_input_id` returned by `/api/video-inputs`. Both adjustment fields default to `0.0` and accept values from `-6.0` through `+6.0`. Local `/api/conversions` requests accept the same fields. Completed local and video manifests record the requested values, whether DSP ran, the filter configuration, and the verified output audio geometry.
 
 ## Configuration
 
@@ -432,6 +451,7 @@ Runtime artifacts stay local and are excluded from Git.
 ```text
 data/
 ├── inputs/                         # Browser-uploaded audio + JSON metadata
+├── video_inputs/                   # Browser-uploaded video + JSON metadata
 ├── jobs/                           # Single-audio atomic job manifests
 ├── models/openvoice-v2/converter/  # Hash-verified config and checkpoint
 ├── outputs/                        # Converted WAV files
@@ -449,7 +469,7 @@ data/
     └── output.mkv                   # Copied video + lossless FLAC master
 ```
 
-Audio/chunk intermediates are intentionally retained for debugging, quality review, and future recovery work. New jobs reference the reusable cache rather than retaining a private duplicate of the downloaded source. Legacy job directories created before version 0.3 may still contain `download/` folders. Long videos can require substantial disk space.
+Audio/chunk intermediates are intentionally retained for debugging, quality review, and future recovery work. YouTube jobs reference the reusable cache rather than retaining a private duplicate of the downloaded source; imported-video jobs reference their file under `video_inputs/`. Legacy job directories created before version 0.3 may still contain `download/` folders. Long videos and imported originals can require substantial disk space.
 
 ## Repository layout
 
@@ -505,7 +525,7 @@ $script = [regex]::Match($html, '<script>([\s\S]*?)</script>').Groups[1].Value
 $script | node --check
 ```
 
-Current suite status: **62 tests passing**.
+Current suite status: **68 tests passing**.
 
 ## Security and privacy
 
@@ -514,8 +534,9 @@ Current suite status: **62 tests passing**.
 - OpenVoice inference runs locally with Hugging Face, Datasets, and Transformers offline flags forced in the worker.
 - OpenVoice model loading uses `torch.load(..., weights_only=True)` and validates missing/unexpected state keys.
 - The upstream watermark dependency is not loaded; the audited converter subclass disables watermark processing.
-- Browser uploads are streamed atomically, use UUID filenames, enforce an extension allowlist, and are capped at 1 GiB.
+- Browser uploads are streamed atomically, use UUID filenames, enforce separate audio/video extension allowlists, and are capped at 1 GiB for audio and 12 GiB for video.
 - Media routes accept validated UUIDs and enforce directory containment.
+- Local-video conversion accepts only a server-resolved upload ID; caller-provided filesystem paths are never accepted.
 - Responses use byte-range support, `Cache-Control: no-store`, and `X-Content-Type-Options: nosniff`.
 - YouTube URLs are restricted to direct HTTPS YouTube hosts and one-video paths.
 - yt-dlp user configuration is ignored, playlists are disabled, and the project refuses yt-dlp versions below the configured security floor.
@@ -600,6 +621,14 @@ If `rubberband` is absent, install an FFmpeg build compiled with `librubberband`
 - Inspect the job manifest's `cache.hit`, `cache.status`, and `youtube_video_id` fields. A hit also records `download.status` as `cache_hit`.
 
 A failed replacement download leaves the previous valid cache in place. At steady state there is never more than one active cached video, although a non-active staging file can coexist temporarily while its replacement is downloading and being validated.
+
+### A local video will not import or convert
+
+- Confirm the extension is one of the formats shown in the file picker and the file is no larger than 12 GiB.
+- The source must contain at least one video stream and one audio stream; silent videos are rejected because there is no soundtrack to convert.
+- Keep the browser tab and bridge console open until the initial upload finishes.
+- Browser preview support is narrower than FFmpeg support. A source can be valid for conversion even if the right-hand source player cannot decode its original codec.
+- Inspect `data/video_jobs/JOB_ID/manifest.json` for the exact failed stage and diagnostic. Imported source files remain under `data/video_inputs/` for retrying.
 
 ### The completed MKV does not play in the browser
 

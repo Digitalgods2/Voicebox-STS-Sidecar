@@ -12,7 +12,12 @@ import wave
 from pydantic import ValidationError
 
 from voicebox_sts_bridge import __version__
-from voicebox_sts_bridge.api import ConversionRequest, YouTubeJobRequest, create_app
+from voicebox_sts_bridge.api import (
+    ConversionRequest,
+    LocalVideoJobRequest,
+    YouTubeJobRequest,
+    create_app,
+)
 from voicebox_sts_bridge.audio_effects import (
     AudioEffectsError,
     AudioEffectsProcessor,
@@ -74,6 +79,22 @@ class AudioAdjustmentValidationTests(unittest.TestCase):
                 sample_id="sample",
                 brightness_db=-7,
                 authorized=True,
+            )
+        local_video = LocalVideoJobRequest(
+            video_input_id="input",
+            profile_id="profile",
+            sample_id="sample",
+            pitch_semitones=1.5,
+            brightness_db=-2,
+            authorized=True,
+        )
+        self.assertEqual(local_video.pitch_semitones, 1.5)
+        with self.assertRaises(ValidationError):
+            LocalVideoJobRequest(
+                video_input_id="input",
+                profile_id="profile",
+                sample_id="sample",
+                pitch_semitones=-7,
             )
 
 
@@ -171,7 +192,7 @@ class AdjustmentUiContractTests(unittest.TestCase):
         self.assertIn('id="brightness"', page)
         self.assertIn("pitch_semitones", page)
         self.assertIn("brightness_db", page)
-        self.assertGreaterEqual(page.count("...adjustments"), 2)
+        self.assertGreaterEqual(page.count("...adjustments"), 3)
         self.assertIn("effects_chain", page)
         self.assertIn("voicebox-sts-profile-adjustments-v1", page)
         self.assertIn("Waiting for durable job status", page)
@@ -179,6 +200,11 @@ class AdjustmentUiContractTests(unittest.TestCase):
         self.assertIn('id="youtube-cache-clear"', page)
         self.assertIn("Convert using cached video", page)
         self.assertIn("youtube-source-cache-v1", page)
+        self.assertIn('id="local-video-input"', page)
+        self.assertIn('id="local-video-player"', page)
+        self.assertIn("/api/video-inputs", page)
+        self.assertIn("/api/video/jobs", page)
+        self.assertIn("local-video-upload-v1", page)
 
     def test_backend_advertises_the_ui_compatibility_feature(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -194,16 +220,35 @@ class AdjustmentUiContractTests(unittest.TestCase):
                 for route in app.routes
                 if route.path == "/api/youtube/cache" and "DELETE" in route.methods
             )
+            local_status_route = next(
+                route for route in app.routes if route.path == "/api/video/status"
+            )
+            local_upload_route = next(
+                route
+                for route in app.routes
+                if route.path == "/api/video-inputs" and "POST" in route.methods
+            )
+            local_job_route = next(
+                route
+                for route in app.routes
+                if route.path == "/api/video/jobs" and "POST" in route.methods
+            )
 
             response = route.endpoint()
             cache_status = cache_route.endpoint()
             clear_status = clear_route.endpoint()
+            local_status = local_status_route.endpoint()
 
         self.assertEqual(response["version"], __version__)
         self.assertIn("resilient-video-polling-v1", response["features"])
         self.assertIn("youtube-source-cache-v1", response["features"])
+        self.assertIn("local-video-upload-v1", response["features"])
         self.assertFalse(cache_status["active"])
         self.assertFalse(clear_status["cleared"])
+        self.assertIn("ffmpeg", local_status["checks"])
+        self.assertIn("ffprobe", local_status["checks"])
+        self.assertIsNotNone(local_upload_route)
+        self.assertIsNotNone(local_job_route)
 
 
 if __name__ == "__main__":

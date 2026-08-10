@@ -20,6 +20,9 @@ This repository records functional outcomes without publishing host paths, Windo
 
 ## Timeline reconstruction and video remux
 
+- Imported videos are streamed atomically to an isolated UUID-addressed directory and are resolved by upload ID rather than a caller-provided filesystem path.
+- The imported-video path does not invoke the downloader or mutate the single-entry YouTube source cache.
+- Imported and downloaded sources use the same audio extraction, chunk conversion, reconstruction, post-processing, remux, and output-validation implementation.
 - Multi-chunk reconstruction produced exactly the extracted source-audio frame count.
 - Chunk overlaps are trimmed before placement, preventing cumulative timeline drift.
 - The original video stream is copied without re-encoding.

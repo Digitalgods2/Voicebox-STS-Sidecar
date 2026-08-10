@@ -107,6 +107,39 @@ class MediaStoreTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 store.resolve_reference(profile_id, str(uuid4()))
 
+    def test_video_upload_is_isolated_described_and_resolved_by_uuid(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory) / "data"
+            store = MediaStore(data_dir)
+
+            result = asyncio.run(
+                store.store_video_input(
+                    r"C:\fakepath\authorized.MP4",
+                    chunks(b"video", b"payload"),
+                    "video/mp4",
+                )
+            )
+
+            stored = Path(result["stored_path"])
+            self.assertEqual(result["original_name"], "authorized.MP4")
+            self.assertEqual(result["media_url"], f"/api/media/video-inputs/{result['video_input_id']}")
+            self.assertEqual(stored.read_bytes(), b"videopayload")
+            self.assertTrue(stored.is_relative_to((data_dir / "video_inputs").resolve()))
+            self.assertEqual(store.resolve_video_input(result["video_input_id"]), stored)
+            self.assertEqual(store.describe_video_input(result["video_input_id"]), result)
+
+    def test_video_upload_rejects_unsupported_and_oversize_files_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory) / "data"
+            store = MediaStore(data_dir, max_video_input_bytes=5)
+
+            with self.assertRaisesRegex(ValueError, "Unsupported video extension"):
+                asyncio.run(store.store_video_input("script.exe", chunks(b"123")))
+            with self.assertRaisesRegex(ValueError, "safety limit"):
+                asyncio.run(store.store_video_input("large.mkv", chunks(b"123", b"456")))
+
+            self.assertEqual(list((data_dir / "video_inputs").iterdir()), [])
+
 
 if __name__ == "__main__":
     unittest.main()

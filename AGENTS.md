@@ -4,7 +4,7 @@
 
 Build a fully local, offline speech-to-speech companion application for Jamie Pine's VoiceBox. The application should convert an existing speech or video recording into a selected VoiceBox voice profile while preserving the source timing, pacing, emphasis, and emotional performance as closely as the selected conversion engine permits.
 
-This is intended primarily for long YouTube audio/video conversions. There must be no cloud inference, paid API, subscription, or per-minute service dependency. A one-time local model download is acceptable only after the user approves its size and license.
+This is intended primarily for long local and YouTube video conversions. There must be no cloud inference, paid API, subscription, or per-minute service dependency. A one-time local model download is acceptable only after the user approves its size and license.
 
 ## User constraints
 
@@ -124,6 +124,7 @@ The initial proof of concept and its long-video extension are implemented and va
 - The web UI automatically selects a sole reference sample, provides native file pickers, and includes persistent source, reference, output-audio, and output-video players.
 - The UI provides per-profile pitch correction and brightness/tone-depth controls. Pitch uses high-quality, formant-preserving Rubber Band processing; tone uses a high shelf; both paths enforce the original converted frame count before publishing output.
 - The YouTube workflow validates authorized URLs, downloads one video locally, extracts full-quality PCM, converts aligned overlapping chunks with one model load, reconstructs the exact source frame count, copies the original video stream, writes lossless FLAC audio to MKV, and fully decodes the result before reporting success.
+- Local videos can be imported through a native browser file picker into a separate, UUID-addressed, 12 GiB-capped store. They are previewable in the UI and join the same exact-timing chunk conversion, lossless remux, and full-validation pipeline without invoking yt-dlp or changing the YouTube cache.
 - YouTube downloads use a validated single-entry source cache keyed by canonical video ID. Matching reruns make no yt-dlp/YouTube request; a different successfully validated download atomically replaces the prior cache without deleting completed job outputs.
 - Durable manifests and progress files survive page refreshes. Automatic continuation after the bridge process itself exits remains future work.
 - Runtime environments, upstream source, model weights, reference caches, source media, and generated outputs remain ignored local data and are not part of the repository.

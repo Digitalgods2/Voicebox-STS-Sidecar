@@ -247,6 +247,7 @@ class YouTubeJobPipelineTests(unittest.TestCase):
             completed = service.get_job(manifest["job_id"])
 
             self.assertEqual(completed["status"], "completed")
+            self.assertEqual(completed["source_type"], "youtube")
             self.assertEqual(completed["progress_percent"], 100.0)
             self.assertTrue(completed["validation"]["full_decode"])
             self.assertTrue(completed["validation"]["exact_audio_frame_match"])
@@ -291,6 +292,90 @@ class YouTubeJobPipelineTests(unittest.TestCase):
             self.assertTrue(cleared["cleared"])
             self.assertTrue(first_output.is_file())
             self.assertTrue(rerun_output.is_file())
+
+    def test_local_upload_uses_same_timeline_pipeline_without_downloader_or_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir = root / "data"
+            reference = root / "reference.wav"
+            write_wave(reference, 22_050)
+            source_frames = 22_050 * 11 + 19
+            video_input_id = str(uuid4())
+            source_video = data_dir / "video_inputs" / f"{video_input_id}.mp4"
+            source_video.parent.mkdir(parents=True)
+            source_video.write_bytes(b"mock local source video")
+
+            def downloader(*_args):
+                raise AssertionError("A local video job must never invoke yt-dlp")
+
+            def runner(command, **_options):
+                command = [str(item) for item in command]
+                if "-show_entries" in command:
+                    target = Path(command[-1])
+                    output = target.name == "output.mkv"
+                    payload = {
+                        "format": {"duration": "11.1", "size": str(target.stat().st_size)},
+                        "streams": [
+                            {"index": 0, "codec_type": "video", "codec_name": "h264"},
+                            {
+                                "index": 1,
+                                "codec_type": "audio",
+                                "codec_name": "flac" if output else "aac",
+                            },
+                        ],
+                    }
+                    return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+                destination = Path(command[-1])
+                if destination.name == "source.wav":
+                    write_wave(destination, source_frames)
+                elif destination.name == "output.mkv":
+                    destination.write_bytes(b"mock local lossless remux")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            engine = FakeBatchEngine()
+            service = YouTubeJobService(
+                data_dir,
+                FakeVoiceBox(reference),
+                engine,
+                downloader=downloader,
+                runner=runner,
+                ffmpeg_path=sys.executable,
+                ffprobe_path=sys.executable,
+                chunk_seconds=10,
+                overlap_seconds=0.5,
+            )
+            manifest = service.create_local_job(
+                source_video,
+                video_input_id,
+                "Authorized local clip.mp4",
+                str(uuid4()),
+                str(uuid4()),
+                authorized=True,
+            )
+
+            service.run_job(manifest["job_id"])
+            completed = service.get_job(manifest["job_id"])
+
+            self.assertEqual(completed["status"], "completed")
+            self.assertEqual(completed["source_type"], "local_upload")
+            self.assertEqual(completed["video"]["source"], "local_upload")
+            self.assertEqual(completed["cache"]["status"], "not_applicable")
+            self.assertEqual(completed["validation"]["source_audio_frames"], source_frames)
+            self.assertEqual(completed["validation"]["converted_audio_frames"], source_frames)
+            self.assertTrue(completed["validation"]["video_stream_copied"])
+            self.assertEqual(len(engine.calls), 1)
+            self.assertEqual(len(engine.calls[0][0]), 2)
+            self.assertTrue(service.resolve_output(manifest["job_id"]).is_file())
+            self.assertFalse(service.cache_status()["active"])
+
+            with self.assertRaisesRegex(ValueError, "own or have permission"):
+                service.create_local_job(
+                    source_video,
+                    video_input_id,
+                    "Authorized local clip.mp4",
+                    str(uuid4()),
+                    str(uuid4()),
+                )
 
     def test_failed_new_download_preserves_the_existing_cache(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

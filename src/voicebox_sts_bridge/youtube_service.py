@@ -26,7 +26,7 @@ from .youtube_cache import YouTubeCacheError, YouTubeSourceCache
 
 
 class YouTubeJobError(RuntimeError):
-    """Raised when a local YouTube video conversion pipeline cannot continue."""
+    """Raised when the local video conversion pipeline cannot continue."""
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
@@ -197,7 +197,7 @@ class ChunkSpec:
 
 
 class YouTubeJobService:
-    """Durable, serialized YouTube -> OpenVoice chunks -> lossless remux pipeline."""
+    """Durable, serialized video -> OpenVoice chunks -> lossless remux pipeline."""
 
     def __init__(
         self,
@@ -298,6 +298,26 @@ class YouTubeJobService:
             "cache": self.cache.status(),
         }
 
+    def video_status(self) -> dict[str, Any]:
+        """Report local-video readiness without requiring YouTube tooling."""
+        checks = {
+            "ffmpeg": Path(self.ffmpeg_path).is_file()
+            or shutil.which(self.ffmpeg_path) is not None,
+            "ffprobe": Path(self.ffprobe_path).is_file()
+            or shutil.which(self.ffprobe_path) is not None,
+        }
+        return {
+            "ok": True,
+            "ready": all(checks.values()),
+            "checks": checks,
+            "ffmpeg": self.ffmpeg_path,
+            "ffprobe": self.ffprobe_path,
+            "output_container": "Matroska",
+            "output_audio_codec": "FLAC",
+            "video_reencoded": False,
+            "model_sample_rate_hz": _MODEL_SAMPLE_RATE,
+        }
+
     def create_job(
         self,
         youtube_url: str,
@@ -335,6 +355,7 @@ class YouTubeJobService:
         )
         manifest = {
             "job_id": job_id,
+            "source_type": "youtube",
             "status": "queued",
             "stage": "queued",
             "progress_percent": 0.0,
@@ -371,6 +392,93 @@ class YouTubeJobService:
         _atomic_json(job_dir / "manifest.json", manifest)
         return manifest
 
+    def create_local_job(
+        self,
+        source_video: str | Path,
+        video_input_id: str,
+        original_name: str,
+        profile_id: str,
+        sample_id: str,
+        *,
+        tau: float = 0.3,
+        pitch_semitones: float = 0.0,
+        brightness_db: float = 0.0,
+        authorized: bool = False,
+    ) -> dict[str, Any]:
+        if authorized is not True:
+            raise ValueError("You must confirm that you own or have permission to process this video")
+        video_input_id = _uuid(video_input_id, "video_input_id")
+        profile = _uuid(profile_id, "profile_id")
+        sample = _uuid(sample_id, "sample_id")
+        value_tau = float(tau)
+        if not math.isfinite(value_tau) or not 0.0 <= value_tau <= 1.0:
+            raise ValueError("tau must be between 0 and 1")
+        pitch, brightness = validate_audio_adjustments(pitch_semitones, brightness_db)
+        if not isinstance(original_name, str) or not original_name.strip():
+            raise ValueError("original_name is required")
+
+        video_inputs_dir = (self.data_dir / "video_inputs").resolve()
+        try:
+            resolved_source = Path(source_video).resolve(strict=True)
+        except FileNotFoundError as exc:
+            raise FileNotFoundError("Uploaded video does not exist") from exc
+        if not resolved_source.is_file() or not resolved_source.is_relative_to(video_inputs_dir):
+            raise ValueError("Uploaded video escapes the local video-input directory")
+        size_bytes = resolved_source.stat().st_size
+        if size_bytes <= 0 or size_bytes > self.max_download_bytes:
+            raise ValueError("Uploaded video has an invalid size")
+
+        status = self.video_status()
+        if not status["ready"]:
+            missing = [name for name, ready in status["checks"].items() if not ready]
+            raise YouTubeJobError(
+                f"Local video pipeline is not ready; failed checks: {', '.join(missing)}"
+            )
+
+        job_id = str(uuid4())
+        job_dir = self.jobs_dir / job_id
+        job_dir.mkdir(parents=True, exist_ok=False)
+        created_at = _utc_now()
+        manifest = {
+            "job_id": job_id,
+            "source_type": "local_upload",
+            "status": "queued",
+            "stage": "queued",
+            "progress_percent": 0.0,
+            "created_at": created_at,
+            "updated_at": created_at,
+            "video_input_id": video_input_id,
+            "local_source_video": str(resolved_source),
+            "original_name": original_name.strip()[:512],
+            "source_size_bytes": size_bytes,
+            "profile_id": profile,
+            "sample_id": sample,
+            "tau": value_tau,
+            "pitch_semitones": pitch,
+            "brightness_db": brightness,
+            "authorized": True,
+            "cache": {
+                "candidate_hit": False,
+                "hit": False,
+                "status": "not_applicable",
+            },
+            "chunk_seconds": self.chunk_seconds,
+            "overlap_seconds": self.overlap_seconds,
+            "quality": {
+                "inference_precision": "fp32",
+                "intermediate_audio": "PCM s16le",
+                "output_audio": "lossless FLAC",
+                "video": "stream copy (no re-encode)",
+                "model_sample_rate_hz": _MODEL_SAMPLE_RATE,
+                "pitch_engine": "FFmpeg Rubber Band high-quality, formants preserved",
+                "tone_filter": "2.5 kHz high shelf",
+            },
+            "output_video": str(job_dir / "output.mkv"),
+            "media_url": f"/api/media/video-jobs/{job_id}",
+        }
+        _atomic_json(job_dir / "manifest.json", manifest)
+        return manifest
+
     def run_job(self, job_id: str) -> None:
         job_id = _uuid(job_id, "job_id")
         with self._pipeline_lock:
@@ -378,18 +486,30 @@ class YouTubeJobService:
             if manifest.get("status") == "completed":
                 return
             try:
+                source_type = str(manifest.get("source_type") or "youtube")
+                first_stage = (
+                    "validating_local_video"
+                    if source_type == "local_upload"
+                    else "checking_download_cache"
+                )
                 self._update(
                     job_id,
                     status="running",
-                    stage="checking_download_cache",
+                    stage=first_stage,
                     progress_percent=1.0,
                     started_at=_utc_now(),
                 )
                 job_dir = self._job_dir(job_id)
-                source_video, video_info, source_probe, cache_result = self._source_for_job(
-                    job_id,
-                    manifest,
-                )
+                if source_type == "local_upload":
+                    source_video, video_info, source_probe, cache_result = (
+                        self._local_source_for_job(manifest)
+                    )
+                elif source_type == "youtube":
+                    source_video, video_info, source_probe, cache_result = (
+                        self._source_for_job(job_id, manifest)
+                    )
+                else:
+                    raise YouTubeJobError(f"Unsupported video source type: {source_type}")
                 source_duration = self._duration_seconds(source_probe)
                 self._update(
                     job_id,
@@ -674,6 +794,37 @@ class YouTubeJobService:
             raise YouTubeJobError(str(exc)) from exc
         finally:
             self.cache.discard_staging(staging)
+
+    def _local_source_for_job(
+        self,
+        manifest: dict[str, Any],
+    ) -> tuple[Path, dict[str, Any], dict[str, Any], dict[str, Any]]:
+        video_input_id = _uuid(str(manifest.get("video_input_id") or ""), "video_input_id")
+        video_inputs_dir = (self.data_dir / "video_inputs").resolve()
+        try:
+            source_video = Path(str(manifest["local_source_video"])).resolve(strict=True)
+        except (KeyError, FileNotFoundError) as exc:
+            raise YouTubeJobError("Uploaded local video is missing") from exc
+        if not source_video.is_file() or not source_video.is_relative_to(video_inputs_dir):
+            raise YouTubeJobError("Uploaded local video escapes the video-input directory")
+        size_bytes = source_video.stat().st_size
+        if size_bytes <= 0 or size_bytes > self.max_download_bytes:
+            raise YouTubeJobError("Uploaded local video has an invalid size")
+
+        source_probe = self._probe(source_video)
+        self._validate_source_probe(source_probe, "Uploaded")
+        video_info = {
+            "id": video_input_id,
+            "title": str(manifest.get("original_name") or source_video.name),
+            "source": "local_upload",
+            "size_bytes": size_bytes,
+        }
+        cache_result = {
+            "candidate_hit": False,
+            "hit": False,
+            "status": "not_applicable",
+        }
+        return source_video, video_info, source_probe, cache_result
 
     @staticmethod
     def _validate_source_probe(source_probe: dict[str, Any], label: str) -> None:

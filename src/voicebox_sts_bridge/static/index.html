@@ -175,7 +175,7 @@
 
         <section class="card" aria-labelledby="adjustments-heading">
           <h2 id="adjustments-heading">4. Shape the converted voice</h2>
-          <p class="muted">These settings apply to both local audio and YouTube jobs. Pitch keeps tempo and formants intact; brightness changes tonal depth without changing timing.</p>
+          <p class="muted">These settings apply to local audio, local video, and YouTube jobs. Pitch keeps tempo and formants intact; brightness changes tonal depth without changing timing.</p>
           <div class="adjustment-grid">
             <div class="adjustment-control">
               <div class="adjustment-heading">
@@ -241,6 +241,34 @@
             <pre id="youtube-result"></pre>
           </details>
         </section>
+
+        <section class="card" aria-labelledby="local-video-heading">
+          <p class="eyebrow">Local video production</p>
+          <h2 id="local-video-heading">7. Import a video from this PC</h2>
+          <p class="muted">Choose an authorized local video. It uses the same lossless extraction, overlapping STS chunks, exact-timing reconstruction, pitch/tone controls, stream-copy video, and FLAC remux used for YouTube.</p>
+          <p id="local-video-engine" class="status" role="status" aria-live="polite">Checking local video toolsâ€¦</p>
+          <label for="local-video-input" class="sr-only">Authorized local video file</label>
+          <input id="local-video-input" type="file" accept="video/*,.avi,.m2ts,.m4v,.mkv,.mov,.mp4,.mpeg,.mpg,.ts,.webm,.wmv" hidden>
+          <div class="file-picker">
+            <button id="choose-local-video" type="button">Choose video from this PCâ€¦</button>
+            <span id="local-video-name" class="file-name">No file selected</span>
+          </div>
+          <progress id="local-video-upload-progress" max="100" value="0" hidden></progress>
+          <p id="local-video-upload-status" class="status" role="status" aria-live="polite"></p>
+          <div class="checkbox-row">
+            <input id="local-video-authorized" type="checkbox">
+            <label for="local-video-authorized">I own this video or have permission to convert it.</label>
+          </div>
+          <div class="action-row">
+            <button id="local-video-convert" type="button" disabled>Convert imported video</button>
+          </div>
+          <progress id="local-video-progress" max="100" value="0" hidden></progress>
+          <p id="local-video-summary" class="status" role="status" aria-live="polite"></p>
+          <details id="local-video-details" hidden>
+            <summary>Local video job details</summary>
+            <pre id="local-video-result"></pre>
+          </details>
+        </section>
       </div>
 
       <aside class="player" aria-labelledby="player-heading">
@@ -258,6 +286,16 @@
           </div>
           <p id="player-status" class="player-note" role="status" aria-live="polite">Upload a source or choose a reference to begin.</p>
         </section>
+        <section class="card player-card" aria-labelledby="local-video-player-heading">
+          <p class="eyebrow">Imported source</p>
+          <h2 id="local-video-player-heading">Local video player</h2>
+          <p id="local-video-player-label" class="now-playing" aria-live="polite">No local video imported</p>
+          <video id="local-video-player" controls preload="metadata" hidden>
+            Your browser does not support video playback.
+          </video>
+          <a id="local-video-download" class="download-link" href="#" hidden>Open or save the imported video</a>
+          <p class="player-note">Use this player to check the selected source before conversion. Playback depends on whether your browser supports the file's original container and codecs.</p>
+        </section>
         <section class="card player-card" aria-labelledby="video-player-heading">
           <p class="eyebrow">Lossless master</p>
           <h2 id="video-player-heading">Finished video</h2>
@@ -266,7 +304,7 @@
             Your browser does not support video playback.
           </video>
           <a id="video-download" class="download-link" href="#" download hidden>Open or save the MKV master</a>
-          <p class="player-note">The master keeps the downloaded video stream unchanged and stores the converted audio as lossless FLAC. Browser playback depends on the original YouTube video codec; the file remains playable in VLC.</p>
+          <p class="player-note">The master keeps the source video stream unchanged and stores the converted audio as lossless FLAC. Browser playback depends on the original video codec; the file remains playable in VLC.</p>
         </section>
       </aside>
     </div>
@@ -317,6 +355,21 @@
     const youtubeSummary = document.querySelector('#youtube-summary');
     const youtubeDetails = document.querySelector('#youtube-details');
     const youtubeResult = document.querySelector('#youtube-result');
+    const localVideoEngine = document.querySelector('#local-video-engine');
+    const localVideoInput = document.querySelector('#local-video-input');
+    const chooseLocalVideoButton = document.querySelector('#choose-local-video');
+    const localVideoName = document.querySelector('#local-video-name');
+    const localVideoUploadProgress = document.querySelector('#local-video-upload-progress');
+    const localVideoUploadStatus = document.querySelector('#local-video-upload-status');
+    const localVideoAuthorized = document.querySelector('#local-video-authorized');
+    const localVideoConvertButton = document.querySelector('#local-video-convert');
+    const localVideoProgress = document.querySelector('#local-video-progress');
+    const localVideoSummary = document.querySelector('#local-video-summary');
+    const localVideoDetails = document.querySelector('#local-video-details');
+    const localVideoResult = document.querySelector('#local-video-result');
+    const localVideoPlayer = document.querySelector('#local-video-player');
+    const localVideoPlayerLabel = document.querySelector('#local-video-player-label');
+    const localVideoDownload = document.querySelector('#local-video-download');
     const videoPlayer = document.querySelector('#video-player');
     const videoPlayerLabel = document.querySelector('#video-player-label');
     const videoDownload = document.querySelector('#video-download');
@@ -324,8 +377,10 @@
     let backendCompatible = false;
     let engineReady = false;
     let youtubeReady = false;
+    let localVideoReady = false;
     let youtubeCache = { active: false };
     let uploadedInput = null;
+    let uploadedVideo = null;
     let latestOutput = null;
     let sampleLoadToken = 0;
     let referenceLoadToken = 0;
@@ -334,7 +389,7 @@
     let activeVideoJob = null;
     let profileRecords = new Map();
     const adjustmentStorageKey = 'voicebox-sts-profile-adjustments-v1';
-    const requiredBackendFeature = 'youtube-source-cache-v1';
+    const requiredBackendFeatures = ['youtube-source-cache-v1', 'local-video-upload-v1'];
 
     async function json(url, options) {
       const response = await fetch(url, options);
@@ -495,6 +550,10 @@
         backendCompatible && youtubeReady && engineReady && profile.value && sample.value &&
         youtubeAuthorized.checked && youtubeUrl.value.trim() && !videoJobRunning
       );
+      localVideoConvertButton.disabled = !(
+        backendCompatible && localVideoReady && engineReady && profile.value && sample.value &&
+        localVideoAuthorized.checked && uploadedVideo?.video_input_id && !videoJobRunning
+      );
     }
 
     function loadMedia(url, label, autoplay = false) {
@@ -521,10 +580,10 @@
       return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}`;
     }
 
-    function uploadFile(file, onProgress) {
+    function uploadFile(file, endpoint, onProgress) {
       return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest();
-        request.open('POST', `/api/inputs?filename=${encodeURIComponent(file.name)}`);
+        request.open('POST', `${endpoint}?filename=${encodeURIComponent(file.name)}`);
         request.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
         request.upload.addEventListener('progress', event => {
           onProgress(event.lengthComputable ? Math.round((event.loaded / event.total) * 100) : null);
@@ -612,6 +671,7 @@
     function videoStageLabel(stage) {
       const labels = {
         queued: 'Queued',
+        validating_local_video: 'Validating the imported video',
         checking_download_cache: 'Checking the local video cache',
         using_cached_download: 'Using the cached video; download skipped',
         downloading: 'Downloading the highest-quality video',
@@ -639,6 +699,17 @@
       videoPlayerLabel.textContent = job.video?.title || `Completed job ${job.job_id}`;
     }
 
+    function showImportedVideo(upload) {
+      if (!upload?.media_url) return;
+      localVideoPlayer.src = upload.media_url;
+      localVideoPlayer.hidden = false;
+      localVideoPlayer.load();
+      localVideoDownload.href = upload.media_url;
+      localVideoDownload.download = upload.original_name || 'imported-video';
+      localVideoDownload.hidden = false;
+      localVideoPlayerLabel.textContent = upload.original_name || 'Imported video';
+    }
+
     async function refreshYouTubeCache() {
       try {
         renderYouTubeCache(await json('/api/youtube/cache'));
@@ -648,35 +719,55 @@
       }
     }
 
-    function beginVideoPolling(jobId) {
-      if (videoPollTimer) clearTimeout(videoPollTimer);
-      const generation = ++videoPollGeneration;
-      pollVideoJob(jobId, 0, generation);
+    function videoWorkflowElements(workflow) {
+      return workflow === 'local'
+        ? {
+            progress: localVideoProgress,
+            summary: localVideoSummary,
+            details: localVideoDetails,
+            result: localVideoResult
+          }
+        : {
+            progress: youtubeProgress,
+            summary: youtubeSummary,
+            details: youtubeDetails,
+            result: youtubeResult
+          };
     }
 
-    async function pollVideoJob(jobId, readFailures, generation) {
+    function beginVideoPolling(jobId, workflow = 'youtube') {
+      if (videoPollTimer) clearTimeout(videoPollTimer);
+      const generation = ++videoPollGeneration;
+      pollVideoJob(jobId, workflow, 0, generation);
+    }
+
+    async function pollVideoJob(jobId, workflow, readFailures, generation) {
+      const targets = videoWorkflowElements(workflow);
       try {
-        const job = await json(`/api/youtube/jobs/${encodeURIComponent(jobId)}`);
+        const job = await json(`/api/video/jobs/${encodeURIComponent(jobId)}`);
         if (generation !== videoPollGeneration) return;
         activeVideoJob = job;
         const progress = Math.max(0, Math.min(100, Number(job.progress_percent) || 0));
-        youtubeProgress.hidden = false;
-        youtubeProgress.value = progress;
+        targets.progress.hidden = false;
+        targets.progress.value = progress;
         const completedChunks = job.status === 'completed' ? job.chunk_count : (job.chunks_completed || 0);
         const chunks = job.chunk_count ? ` · ${completedChunks}/${job.chunk_count} chunks` : '';
         setStatus(
-          youtubeSummary,
+          targets.summary,
           `${videoStageLabel(job.stage)} · ${progress.toFixed(1)}%${chunks}`,
           job.status === 'completed' ? 'ok' : job.status === 'failed' ? 'bad' : ''
         );
-        showDetails(youtubeDetails, youtubeResult, job);
+        showDetails(targets.details, targets.result, job);
         if (job.status === 'completed') {
           showCompletedVideo(job);
-          refreshYouTubeCache();
+          if (job.source_type === 'youtube') refreshYouTubeCache();
         } else if (job.status === 'failed') {
-          refreshYouTubeCache();
+          if (job.source_type === 'youtube') refreshYouTubeCache();
         } else if (job.status !== 'failed') {
-          videoPollTimer = setTimeout(() => pollVideoJob(jobId, 0, generation), 2000);
+          videoPollTimer = setTimeout(
+            () => pollVideoJob(jobId, workflow, 0, generation),
+            2000,
+          );
         }
       } catch (error) {
         if (generation !== videoPollGeneration) return;
@@ -684,16 +775,16 @@
         if (retryable && readFailures < 12) {
           const nextFailure = readFailures + 1;
           setStatus(
-            youtubeSummary,
+            targets.summary,
             `Waiting for durable job status… retry ${nextFailure}/12`,
           );
           videoPollTimer = setTimeout(
-            () => pollVideoJob(jobId, nextFailure, generation),
+            () => pollVideoJob(jobId, workflow, nextFailure, generation),
             1000,
           );
         } else {
           activeVideoJob = null;
-          setStatus(youtubeSummary, error.message, 'bad');
+          setStatus(targets.summary, error.message, 'bad');
         }
       } finally {
         updateActions();
@@ -703,7 +794,10 @@
     async function start() {
       try {
         const backend = await json('/api/version');
-        if (!Array.isArray(backend.features) || !backend.features.includes(requiredBackendFeature)) {
+        if (
+          !Array.isArray(backend.features) ||
+          !requiredBackendFeatures.every(feature => backend.features.includes(feature))
+        ) {
           throw new Error('The running bridge backend is older than this page.');
         }
         backendCompatible = true;
@@ -712,6 +806,7 @@
         setStatus(health, message, 'bad');
         setStatus(engine, message, 'bad');
         setStatus(youtubeEngine, message, 'bad');
+        setStatus(localVideoEngine, message, 'bad');
         updateActions();
         return;
       }
@@ -759,9 +854,30 @@
         youtubeCacheSummary.textContent = 'Cache status is unavailable.';
         youtubeCacheSummary.className = 'status bad';
       }
+      try {
+        const state = await json('/api/video/status');
+        localVideoReady = Boolean(state.ready);
+        setStatus(
+          localVideoEngine,
+          state.ready
+            ? 'Ready Â· copied video + lossless FLAC audio'
+            : 'Local video pipeline installation is incomplete',
+          state.ready ? 'ok' : 'bad'
+        );
+      } catch (error) {
+        localVideoReady = false;
+        setStatus(localVideoEngine, error.message, 'bad');
+      }
       updateActions();
       const previousVideoJob = localStorage.getItem('voicebox-sts-latest-video-job');
-      if (previousVideoJob) beginVideoPolling(previousVideoJob);
+      if (previousVideoJob) {
+        try {
+          const saved = JSON.parse(previousVideoJob);
+          beginVideoPolling(saved.job_id, saved.workflow || 'youtube');
+        } catch {
+          beginVideoPolling(previousVideoJob, 'youtube');
+        }
+      }
     }
 
     profile.addEventListener('change', () => {
@@ -776,6 +892,7 @@
     });
     youtubeUrl.addEventListener('input', updateActions);
     youtubeAuthorized.addEventListener('change', updateActions);
+    localVideoAuthorized.addEventListener('change', updateActions);
     youtubeCacheClearButton.addEventListener('click', async () => {
       if (!youtubeCache.active) return;
       const title = youtubeCache.title || youtubeCache.video_id;
@@ -818,7 +935,7 @@
       updateActions();
 
       try {
-        const body = await uploadFile(file, percent => {
+        const body = await uploadFile(file, '/api/inputs', percent => {
           setStatus(uploadStatus, percent === null ? `Uploading ${file.name}…` : `Uploading ${file.name}… ${percent}%`);
         });
         if (!body.input_id) throw new Error('Upload response did not include an input ID.');
@@ -830,6 +947,47 @@
         setStatus(uploadStatus, error.message, 'bad');
       } finally {
         chooseSourceButton.disabled = false;
+        updateActions();
+      }
+    });
+
+    chooseLocalVideoButton.addEventListener('click', () => localVideoInput.click());
+    localVideoInput.addEventListener('change', async () => {
+      const file = localVideoInput.files?.[0];
+      localVideoInput.value = '';
+      if (!file) return;
+
+      uploadedVideo = null;
+      chooseLocalVideoButton.disabled = true;
+      localVideoName.textContent = `${file.name} Â· ${formatBytes(file.size)}`;
+      localVideoUploadProgress.hidden = false;
+      localVideoUploadProgress.value = 0;
+      localVideoDetails.hidden = true;
+      localVideoSummary.textContent = '';
+      updateActions();
+
+      try {
+        const body = await uploadFile(file, '/api/video-inputs', percent => {
+          if (percent !== null) localVideoUploadProgress.value = percent;
+          setStatus(
+            localVideoUploadStatus,
+            percent === null
+              ? `Importing ${file.name}â€¦`
+              : `Importing ${file.name}â€¦ ${percent}%`,
+          );
+        });
+        if (!body.video_input_id) {
+          throw new Error('Video upload response did not include a video input ID.');
+        }
+        uploadedVideo = { ...body, original_name: file.name };
+        localVideoUploadProgress.value = 100;
+        setStatus(localVideoUploadStatus, `${file.name} imported and ready.`, 'ok');
+        showImportedVideo(uploadedVideo);
+      } catch (error) {
+        localVideoUploadProgress.hidden = true;
+        setStatus(localVideoUploadStatus, error.message, 'bad');
+      } finally {
+        chooseLocalVideoButton.disabled = false;
         updateActions();
       }
     });
@@ -903,12 +1061,48 @@
           })
         });
         activeVideoJob = job;
-        localStorage.setItem('voicebox-sts-latest-video-job', job.job_id);
+        localStorage.setItem(
+          'voicebox-sts-latest-video-job',
+          JSON.stringify({ job_id: job.job_id, workflow: 'youtube' }),
+        );
         showDetails(youtubeDetails, youtubeResult, job);
-        beginVideoPolling(job.job_id);
+        beginVideoPolling(job.job_id, 'youtube');
       } catch (error) {
         activeVideoJob = null;
         setStatus(youtubeSummary, error.message, 'bad');
+        updateActions();
+      }
+    });
+
+    localVideoConvertButton.addEventListener('click', async () => {
+      localVideoConvertButton.disabled = true;
+      localVideoProgress.hidden = false;
+      localVideoProgress.value = 0;
+      setStatus(localVideoSummary, 'Creating local video conversion jobâ€¦');
+      try {
+        const adjustments = adjustmentValues();
+        const job = await json('/api/video/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            video_input_id: uploadedVideo.video_input_id,
+            profile_id: profile.value,
+            sample_id: sample.value,
+            tau: 0.3,
+            ...adjustments,
+            authorized: localVideoAuthorized.checked
+          })
+        });
+        activeVideoJob = job;
+        localStorage.setItem(
+          'voicebox-sts-latest-video-job',
+          JSON.stringify({ job_id: job.job_id, workflow: 'local' }),
+        );
+        showDetails(localVideoDetails, localVideoResult, job);
+        beginVideoPolling(job.job_id, 'local');
+      } catch (error) {
+        activeVideoJob = null;
+        setStatus(localVideoSummary, error.message, 'bad');
         updateActions();
       }
     });

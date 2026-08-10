@@ -7,7 +7,7 @@ PROJECT_ROOT = Path(__file__).parents[1]
 def test_windows_launcher_requires_the_current_backend_contract() -> None:
     launcher = (PROJECT_ROOT / "start-bridge.bat").read_text(encoding="utf-8")
 
-    assert "BRIDGE_REQUIRED_FEATURE=youtube-source-cache-v1" in launcher
+    assert "BRIDGE_REQUIRED_FEATURE=local-video-upload-v1" in launcher
     assert "/api/version" in launcher
     assert "@($version.features) -contains '%BRIDGE_REQUIRED_FEATURE%'" in launcher
     assert "Startup check passed: the compatible bridge is already running." in launcher
