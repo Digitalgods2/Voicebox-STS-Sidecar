@@ -5,7 +5,7 @@ cd /d "%~dp0"
 set "BRIDGE_HOST=127.0.0.1"
 set "BRIDGE_PORT=8765"
 set "BRIDGE_URL=http://127.0.0.1:8765"
-set "BRIDGE_REQUIRED_FEATURE=production-console-ui-v1"
+set "BRIDGE_REQUIRED_FEATURE=secure-openvoice-runtime-v1"
 set "VOICEBOX_URL=http://127.0.0.1:17493"
 set "VOICEBOX_BASE_URL=%VOICEBOX_URL%"
 if not defined VOICEBOX_EXE set "VOICEBOX_EXE=%ProgramFiles%\Voicebox\voicebox.exe"
@@ -84,7 +84,8 @@ if errorlevel 1 (
 if /I "%~1"=="--check" (
   "%BRIDGE_PYTHON%" -m voicebox_sts_bridge engine-status >nul
   if errorlevel 1 (
-    echo Startup check failed: the OpenVoice engine is not ready.
+    echo Startup check failed: the OpenVoice engine is missing, incompatible, or insecure.
+    echo Reinstall the pinned isolated runtime from README.md before continuing.
     exit /b 1
   )
   "%BRIDGE_PYTHON%" -c "import sys; from voicebox_sts_bridge.youtube_service import YouTubeJobService; sys.exit(0 if YouTubeJobService('data', None, None).status()['ready'] else 1)" >nul

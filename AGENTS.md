@@ -116,9 +116,9 @@ Only after the proof of concept succeeds should the project add long-file chunki
 
 ## Current status
 
-The initial proof of concept and its long-video extension are implemented and validated locally as of 2026-08-10.
+The initial proof of concept and its long-video extension are implemented and validated locally as of 2026-08-11.
 
-- OpenVoice V2 is installed in an isolated Python 3.10/CUDA environment from pinned source and a hash-verified converter checkpoint.
+- OpenVoice V2 is installed in an isolated Python 3.10/CUDA environment from pinned source. The worker enforces security-fixed PyTorch 2.13.0 or newer and verifies the converter checkpoint against tracked provenance before deserialization.
 - A representative source was converted successfully on local CUDA hardware and fully decoded; host-specific measurements remain local.
 - The FastAPI service can discover VoiceBox profiles, cache reference WAV files, accept browser uploads, convert local audio, and serve source/reference/output media with byte-range support.
 - The web UI automatically selects a sole reference sample, provides native file pickers, and includes persistent source, reference, output-audio, and output-video players. Its production-console design color-codes all seven stages and displays live service, dependency, cache, and video-pipeline states without inventing metrics.

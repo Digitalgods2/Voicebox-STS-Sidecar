@@ -263,6 +263,7 @@ class AdjustmentUiContractTests(unittest.TestCase):
         self.assertIn("local-video-upload-v1", response["features"])
         self.assertIn("clean-ui-labels-v1", response["features"])
         self.assertIn("production-console-ui-v1", response["features"])
+        self.assertIn("secure-openvoice-runtime-v1", response["features"])
         self.assertFalse(cache_status["active"])
         self.assertFalse(clear_status["cleared"])
         self.assertIn("ffmpeg", local_status["checks"])

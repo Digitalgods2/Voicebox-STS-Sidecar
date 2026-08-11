@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
+import hashlib
 from io import StringIO
 import json
 from pathlib import Path
@@ -34,7 +35,14 @@ def scaffold_project(root: Path) -> None:
     converter = root / "data" / "models" / "openvoice-v2" / "converter"
     converter.mkdir(parents=True)
     (converter / "config.json").write_text("{}", encoding="utf-8")
-    (converter / "checkpoint.pth").write_bytes(b"local checkpoint placeholder")
+    checkpoint = b"local checkpoint placeholder"
+    (converter / "checkpoint.pth").write_bytes(checkpoint)
+    provenance = root / "config" / "openvoice-v2.provenance.json"
+    provenance.parent.mkdir(parents=True)
+    provenance.write_text(
+        json.dumps({"converter_model": {"sha256": hashlib.sha256(checkpoint).hexdigest()}}),
+        encoding="utf-8",
+    )
 
 
 class OpenVoiceEngineTests(unittest.TestCase):
@@ -340,10 +348,12 @@ class OpenVoiceWorkerTests(unittest.TestCase):
                 return True
 
             with patch.object(openvoice_worker, "_dependency_available", side_effect=available), patch.object(
-                openvoice_worker, "_load_converter"
-            ) as load_converter:
+                openvoice_worker, "_installed_dependency_version", return_value="2.13.0+cu126"
+            ), patch.object(openvoice_worker, "_load_converter") as load_converter:
                 result = openvoice_worker.status_payload(root)
             self.assertTrue(result["ready"])
+            self.assertEqual(result["torch_version"], "2.13.0+cu126")
+            self.assertTrue(result["checkpoint_verified"])
             self.assertFalse(result["model_loaded"])
             self.assertEqual(
                 dependencies,
@@ -362,6 +372,35 @@ class OpenVoiceWorkerTests(unittest.TestCase):
                 ],
             )
             load_converter.assert_not_called()
+
+    def test_status_rejects_a_vulnerable_torch_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scaffold_project(root)
+            with patch.object(openvoice_worker, "_dependency_available", return_value=True), patch.object(
+                openvoice_worker, "_installed_dependency_version", return_value="2.12.1+cu126"
+            ):
+                result = openvoice_worker.status_payload(root)
+
+            self.assertFalse(result["ready"])
+            self.assertFalse(result["checks"]["torch"])
+            self.assertEqual(result["minimum_torch_version"], "2.13.0")
+
+    def test_checkpoint_hash_mismatch_fails_before_deserialization(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scaffold_project(root)
+            checkpoint = root / "data" / "models" / "openvoice-v2" / "converter" / "checkpoint.pth"
+            checkpoint.write_bytes(b"tampered checkpoint")
+            torch_module = ModuleType("torch")
+            torch_module.__version__ = "2.13.0+cu126"  # type: ignore[attr-defined]
+            torch_module.load = Mock()  # type: ignore[attr-defined]
+
+            with patch.dict(sys.modules, {"torch": torch_module}):
+                with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+                    openvoice_worker._load_converter(root, "cpu")
+
+            torch_module.load.assert_not_called()  # type: ignore[attr-defined]
 
     def test_worker_directly_extracts_both_embeddings_and_keeps_stdout_json_clean(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -427,6 +466,7 @@ class OpenVoiceWorkerTests(unittest.TestCase):
             api_module.OpenVoiceBaseClass = FakeBase  # type: ignore[attr-defined]
             api_module.ToneColorConverter = FakeConverter  # type: ignore[attr-defined]
             torch_module = ModuleType("torch")
+            torch_module.__version__ = "2.13.0+cu126"  # type: ignore[attr-defined]
             torch_loads: list[tuple[str, dict[str, object]]] = []
 
             def torch_load(path: str, **kwargs: object) -> dict[str, object]:
@@ -519,6 +559,7 @@ class OpenVoiceWorkerTests(unittest.TestCase):
             api_module.OpenVoiceBaseClass = FakeBase  # type: ignore[attr-defined]
             api_module.ToneColorConverter = FakeConverter  # type: ignore[attr-defined]
             torch_module = ModuleType("torch")
+            torch_module.__version__ = "2.13.0+cu126"  # type: ignore[attr-defined]
             torch_module.load = lambda *_args, **_kwargs: {"model": {"weight": object()}}  # type: ignore[attr-defined]
 
             with patch.dict(

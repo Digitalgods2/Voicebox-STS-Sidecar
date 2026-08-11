@@ -13,7 +13,7 @@ The Python package and on-screen application currently use the historical name *
 
 This is a working Windows proof of concept with a production-oriented long-video path. It has been validated on CUDA-capable NVIDIA hardware; host-identifying specifications are intentionally not stored in this repository.
 
-Current application version: **0.5.0**. The production-console interface uses a color-coded seven-stage workflow, live local-service badges, clearer technical facts, a video pipeline monitor, and a dependency board while preserving the existing accessible controls and responsive layout.
+Current application version: **0.5.1**. The production-console interface uses a color-coded seven-stage workflow, live local-service badges, clearer technical facts, a video pipeline monitor, and a dependency board while preserving the existing accessible controls and responsive layout. The isolated inference runtime now enforces the security-fixed PyTorch 2.13 floor and verifies the converter checkpoint hash before deserialization.
 
 Implemented:
 
@@ -149,7 +149,7 @@ The repository intentionally excludes virtual environments, upstream source, mod
 
 One-time setup downloads include:
 
-- CUDA-enabled PyTorch and its dependencies, which require several gigabytes of local disk;
+- the official CUDA-enabled PyTorch 2.13.0 wheel: **2,594,544,868 bytes** (about 2.42 GiB), plus its dependencies;
 - OpenVoice source at a pinned Git revision;
 - the OpenVoice V2 converter checkpoint: **131,320,490 bytes** (about 131 MB), MIT licensed.
 
@@ -211,10 +211,10 @@ This installs FastAPI, Uvicorn, pytest, and a patched yt-dlp release. The projec
 conda create --prefix ".\.envs\openvoice-v2" python=3.10.20 pip -y
 ```
 
-Install the pinned CUDA 12.4 PyTorch build first:
+Install the pinned CUDA 12.6 PyTorch build first. PyTorch 2.13.0 is the minimum accepted version because earlier releases are covered by the repository's reviewed security advisories:
 
 ```powershell
-.\.envs\openvoice-v2\python.exe -m pip install --index-url https://download.pytorch.org/whl/cu124 torch==2.4.1
+.\.envs\openvoice-v2\python.exe -m pip install --index-url https://download.pytorch.org/whl/cu126 torch==2.13.0
 ```
 
 Install only the direct converter dependencies. Do not install OpenVoice's full historical requirements file; it pulls unrelated demos, transcription stacks, and cloud-facing packages.
@@ -528,14 +528,14 @@ $script = [regex]::Match($html, '<script>([\s\S]*?)</script>').Groups[1].Value
 $script | node --check
 ```
 
-Current suite status: **68 tests passing**.
+Current suite status: **71 tests passing**.
 
 ## Security and privacy
 
 - The bridge binds only to loopback and rejects non-loopback configuration.
 - VoiceBox is accessed only through its public local REST API.
 - OpenVoice inference runs locally with Hugging Face, Datasets, and Transformers offline flags forced in the worker.
-- OpenVoice model loading uses `torch.load(..., weights_only=True)` and validates missing/unexpected state keys.
+- The worker refuses PyTorch versions older than 2.13.0, verifies the converter checkpoint against the tracked SHA-256 before deserialization, uses `torch.load(..., weights_only=True)`, and validates missing/unexpected state keys.
 - The upstream watermark dependency is not loaded; the audited converter subclass disables watermark processing.
 - Browser uploads are streamed atomically, use UUID filenames, enforce separate audio/video extension allowlists, and are capped at 1 GiB for audio and 12 GiB for video.
 - Media routes accept validated UUIDs and enforce directory containment.
@@ -563,7 +563,7 @@ The long-video implementation prevents cumulative chunk drift by aligning and pa
 - Confirm no firewall or proxy is intercepting loopback HTTP.
 - Verify `VOICEBOX_BASE_URL` has no credentials, query string, or fragment.
 
-### Engine status says installation incomplete
+### Engine status says installation incomplete or insecure
 
 Check all of these paths:
 
@@ -572,6 +572,7 @@ Check all of these paths:
 third_party/OpenVoice/
 data/models/openvoice-v2/converter/config.json
 data/models/openvoice-v2/converter/checkpoint.pth
+config/openvoice-v2.provenance.json
 ```
 
 Then run:
@@ -583,7 +584,7 @@ $env:PYTHONPATH = "src"
 
 ### CUDA probe fails
 
-- Confirm the isolated environment contains `torch==2.4.1+cu124`, not a CPU-only build.
+- Confirm the isolated environment contains `torch==2.13.0+cu126`, not an older or CPU-only build.
 - Run `nvidia-smi` and confirm the NVIDIA driver detects the GPU.
 - Do not install the ML packages into the main Python 3.13 bridge environment.
 
@@ -672,7 +673,7 @@ Video status polling tolerates short Windows file-sharing interruptions and retr
 - Pitch shifting uses the `rubberband` filter in the user's external FFmpeg build. Rubber Band and FFmpeg license obligations depend on that installed build; neither binary nor library is bundled by this repository.
 - CUDA-enabled PyTorch retains its upstream license and is not committed to this repository.
 - Seed-VC is not bundled. Its GPL-3.0 licensing and archived upstream status are documented in [`docs/engine-audit.md`](docs/engine-audit.md).
-- This repository does not currently declare a license for the sidecar's own source. Because the GitHub repository is private, no permission to redistribute should be inferred.
+- This repository does not currently declare a license for the sidecar's own source. Public visibility alone does not grant permission to redistribute it.
 
 ## Roadmap
 

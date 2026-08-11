@@ -1,8 +1,8 @@
 # STS engine audit
 
-Audit date: 2026-08-10
+Audit date: 2026-08-11
 
-Status: OpenVoice V2 was approved, installed, and validated on 2026-08-09. The pinned source, isolated CUDA runtime, and hash-verified converter model are local. Real single-file, one-load batch, and FFmpeg reconstruction/remux tests have completed successfully.
+Status: OpenVoice V2 was approved and installed on 2026-08-09. Its isolated runtime was security-upgraded and revalidated on 2026-08-11. The pinned source, CUDA runtime, and hash-verified converter model are local. Real model loading, single-file conversion, one-load batch, and FFmpeg reconstruction/remux tests have completed successfully.
 
 ## Recommendation
 
@@ -19,7 +19,9 @@ This choice differs from the original research note because Seed-VC's upstream r
 - The converter API accepts source audio plus source and target speaker embeddings. The bridge can therefore use the original performance directly instead of a transcription-to-TTS path.
 - The official Linux instructions use Python 3.9. This project should use an isolated Python 3.10 prefix on Windows; the installed Python 3.13 environment is not a suitable place for the engine.
 - The upstream dependency list is old and includes unrelated packages such as the `openai` client, Gradio, Faster Whisper, and Whisper Timestamped. The direct converter prototype does not require a cloud API, MeloTTS, transcription, or a web demo, so the upstream requirements file must not be installed wholesale.
-- The application host and ML runtime remain separate. The isolated engine prefix uses CUDA-enabled PyTorch `2.4.1+cu124`; no ML packages were added to the main bridge environment.
+- The application host and ML runtime remain separate. The isolated engine prefix uses security-fixed CUDA-enabled PyTorch `2.13.0+cu126`; no ML packages were added to the main bridge environment.
+- GitHub reported nine reviewed advisories against the former PyTorch 2.4.1 pin (one critical, three medium, and five low). PyTorch 2.13.0 is the first stable release outside every affected range, so the worker now rejects older versions.
+- The worker verifies the converter checkpoint against the tracked SHA-256 immediately before `torch.load(..., weights_only=True)`. A missing or altered provenance/checkpoint pair fails readiness and conversion before deserialization.
 - Main uncertainty: OpenVoice is primarily documented as tone-color conversion in a TTS pipeline. Its lower-level converter can process arbitrary source audio, but target similarity and retention of fine emotional detail must be measured rather than assumed.
 
 ## Seed-VC
@@ -44,12 +46,12 @@ This choice differs from the original research note because Seed-VC's upstream r
 The approved OpenVoice V2 installation follows this design:
 
 1. Conda Python 3.10.20 is isolated under `.envs/openvoice-v2`; the base environment was not mutated.
-2. CUDA PyTorch 2.4.1+cu124 is pinned and detects a CUDA-capable NVIDIA GPU.
+2. CUDA PyTorch 2.13.0+cu126 is pinned, detects a CUDA-capable NVIDIA GPU, and is enforced as the minimum worker version.
 3. OpenVoice source revision `74a1d147b17a8c3092dd5430504bd83ef6c7eb23` is kept under ignored `third_party/OpenVoice`.
 4. Only direct-converter dependencies are installed; no cloud SDK, TTS engine, Gradio, or transcription stack is present.
 5. Official model revision `f36e7edfe1684461a8343844af60babc2efbb727` is under `data/models/openvoice-v2`; its checkpoint hash matches the audited SHA-256.
 6. Keep runtime networking disabled except for the explicit installation/download phase.
-7. Real model loading, single conversion, one-load batch conversion, exact-frame reconstruction, lossless remuxing, and full FFmpeg decode validation have passed. The remaining quality gate is a structured listening scorecard across several authorized 30-60 second sources and target profiles.
+7. After the PyTorch security upgrade, real CUDA model loading and a short speech conversion completed successfully; the output passed FFprobe inspection and a complete FFmpeg error-on-decode pass. Earlier one-load batch, exact-frame reconstruction, lossless remuxing, and full decode validation remain applicable. The remaining quality gate is a structured listening scorecard across several authorized 30-60 second sources and target profiles.
 
 ## Pitch and tone post-processing audit
 

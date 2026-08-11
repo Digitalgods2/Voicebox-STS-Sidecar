@@ -1,14 +1,16 @@
 # Privacy-safe validation record
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 This repository records functional outcomes without publishing host paths, Windows usernames, hardware fingerprints, cloned-profile names, source-media names, job identifiers, or raw benchmark manifests. Detailed performance measurements remain local runtime data.
 
 ## Engine and model integrity
 
 - OpenVoice source and model revisions are pinned in `config/openvoice-v2.provenance.json`.
+- The worker rejects PyTorch versions below 2.13.0 and verifies the converter checkpoint against the tracked SHA-256 before deserialization.
 - The converter checkpoint is loaded with `weights_only=True` and checked for missing or unexpected state keys.
 - Model loading, CUDA synchronization, and peak-memory collection complete through the isolated worker.
+- After the PyTorch 2.13.0/CUDA 12.6 security upgrade, a real CUDA model probe and short speech conversion completed; the output passed FFprobe inspection and a complete FFmpeg error-on-decode pass.
 - Runtime inference uses local files and does not require a cloud API.
 
 ## Audio conversion

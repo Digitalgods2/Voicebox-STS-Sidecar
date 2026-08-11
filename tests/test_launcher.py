@@ -7,7 +7,7 @@ PROJECT_ROOT = Path(__file__).parents[1]
 def test_windows_launcher_requires_the_current_backend_contract() -> None:
     launcher = (PROJECT_ROOT / "start-bridge.bat").read_text(encoding="utf-8")
 
-    assert "BRIDGE_REQUIRED_FEATURE=production-console-ui-v1" in launcher
+    assert "BRIDGE_REQUIRED_FEATURE=secure-openvoice-runtime-v1" in launcher
     assert "/api/version" in launcher
     assert "@($version.features) -contains '%BRIDGE_REQUIRED_FEATURE%'" in launcher
     assert "Startup check passed: the compatible bridge is already running." in launcher
@@ -29,3 +29,11 @@ def test_windows_launcher_forces_imports_from_the_worktree() -> None:
 
     assert 'set "PYTHONPATH=%CD%\\src"' in launcher
     assert 'set "PYTHONPATH=%CD%\\src;%PYTHONPATH%"' not in launcher
+
+
+def test_windows_launcher_reports_an_insecure_engine_runtime() -> None:
+    launcher = (PROJECT_ROOT / "start-bridge.bat").read_text(encoding="utf-8")
+
+    assert "engine-status" in launcher
+    assert "OpenVoice engine is missing, incompatible, or insecure" in launcher
+    assert "Reinstall the pinned isolated runtime from README.md" in launcher

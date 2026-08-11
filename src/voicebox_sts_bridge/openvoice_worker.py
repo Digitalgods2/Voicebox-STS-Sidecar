@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import argparse
 from contextlib import redirect_stdout
+import hashlib
+import hmac
+import importlib.metadata
 import importlib.util
 import json
 import math
@@ -15,6 +18,9 @@ from typing import Any
 import wave
 
 
+_MINIMUM_TORCH_VERSION = (2, 13, 0)
+_MINIMUM_TORCH_VERSION_TEXT = "2.13.0"
+_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 _RUNTIME_DEPENDENCIES = (
     "torch",
     "openvoice",
@@ -41,6 +47,7 @@ def _project_paths(project_root: Path) -> dict[str, Path]:
         "openvoice_source": project_root / "third_party" / "OpenVoice",
         "converter_config": converter / "config.json",
         "converter_checkpoint": converter / "checkpoint.pth",
+        "converter_provenance": project_root / "config" / "openvoice-v2.provenance.json",
     }
 
 
@@ -97,6 +104,7 @@ def _require_model_files(project_root: Path) -> dict[str, Path]:
     missing = [name for name, path in paths.items() if not (path.is_dir() if name == "openvoice_source" else path.is_file())]
     if missing:
         raise FileNotFoundError(f"OpenVoice installation is incomplete; missing: {', '.join(missing)}")
+    _verify_converter_checkpoint(paths)
     source_text = str(paths["openvoice_source"])
     if source_text not in sys.path:
         sys.path.insert(0, source_text)
@@ -110,6 +118,60 @@ def _dependency_available(name: str) -> bool:
         return False
 
 
+def _installed_dependency_version(name: str) -> str | None:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _torch_version_is_secure(version: str | None) -> bool:
+    if not isinstance(version, str):
+        return False
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)", version)
+    return match is not None and tuple(int(part) for part in match.groups()) >= _MINIMUM_TORCH_VERSION
+
+
+def _require_secure_torch_version(torch_module: Any) -> str:
+    version = getattr(torch_module, "__version__", None) or _installed_dependency_version("torch")
+    if not _torch_version_is_secure(version):
+        found = version if isinstance(version, str) else "unknown"
+        raise RuntimeError(
+            f"PyTorch {_MINIMUM_TORCH_VERSION_TEXT} or newer is required; found {found}. "
+            "Reinstall the pinned isolated OpenVoice runtime before loading a checkpoint."
+        )
+    return str(version)
+
+
+def _expected_checkpoint_sha256(provenance_path: Path) -> str:
+    if provenance_path.stat().st_size > 64 * 1024:
+        raise RuntimeError("OpenVoice provenance file exceeds the 64 KiB safety limit")
+    try:
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+        expected = provenance["converter_model"]["sha256"]
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise RuntimeError("OpenVoice provenance does not contain a valid converter SHA-256") from exc
+    if not isinstance(expected, str) or _SHA256_PATTERN.fullmatch(expected.lower()) is None:
+        raise RuntimeError("OpenVoice provenance does not contain a valid converter SHA-256")
+    return expected.lower()
+
+
+def _checkpoint_sha256(checkpoint_path: Path) -> str:
+    digest = hashlib.sha256()
+    with checkpoint_path.open("rb") as checkpoint:
+        for block in iter(lambda: checkpoint.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _verify_converter_checkpoint(paths: dict[str, Path]) -> str:
+    expected = _expected_checkpoint_sha256(paths["converter_provenance"])
+    actual = _checkpoint_sha256(paths["converter_checkpoint"])
+    if not hmac.compare_digest(actual, expected):
+        raise RuntimeError("OpenVoice converter checkpoint SHA-256 does not match the audited provenance")
+    return actual
+
+
 def status_payload(project_root: str | Path) -> dict[str, Any]:
     root = Path(project_root).expanduser().resolve()
     paths = _project_paths(root)
@@ -121,9 +183,19 @@ def status_payload(project_root: str | Path) -> dict[str, Any]:
         "project_root": root.is_dir(),
         "openvoice_source": paths["openvoice_source"].is_dir(),
         "converter_config": paths["converter_config"].is_file(),
-        "converter_checkpoint": paths["converter_checkpoint"].is_file(),
+        "converter_checkpoint": False,
+        "converter_provenance": paths["converter_provenance"].is_file(),
     }
     checks.update({name: _dependency_available(name) for name in _RUNTIME_DEPENDENCIES})
+    torch_version = _installed_dependency_version("torch")
+    checks["torch"] = checks["torch"] and _torch_version_is_secure(torch_version)
+    checkpoint_sha256: str | None = None
+    if checks["converter_provenance"] and paths["converter_checkpoint"].is_file():
+        try:
+            checkpoint_sha256 = _verify_converter_checkpoint(paths)
+            checks["converter_checkpoint"] = True
+        except (OSError, RuntimeError):
+            pass
     return {
         "ok": True,
         "operation": "status",
@@ -132,6 +204,10 @@ def status_payload(project_root: str | Path) -> dict[str, Any]:
         "project_root": str(root),
         "python": sys.executable,
         "python_version": sys.version.split()[0],
+        "torch_version": torch_version,
+        "minimum_torch_version": _MINIMUM_TORCH_VERSION_TEXT,
+        "checkpoint_verified": checks["converter_checkpoint"],
+        "checkpoint_sha256": checkpoint_sha256,
         "model_loaded": False,
     }
 
@@ -140,6 +216,8 @@ def _load_converter(project_root: Path, device: str) -> Any:
     paths = _require_model_files(project_root)
     # Import only in probe/convert. Status remains usable before heavyweight dependencies load.
     import torch
+
+    torch_version = _require_secure_torch_version(torch)
     from openvoice.api import OpenVoiceBaseClass, ToneColorConverter
 
     requested_device = _validate_device(device)
@@ -181,6 +259,7 @@ def _load_converter(project_root: Path, device: str) -> Any:
         raise RuntimeError(f"OpenVoice checkpoint does not match the converter model ({'; '.join(details)})")
     converter.model.to(requested_device).eval()
     converter.device = requested_device
+    converter.bridge_torch_version = torch_version
     return converter
 
 
@@ -190,8 +269,8 @@ def _reset_cuda_metrics(device: str) -> Any | None:
         return None
     import torch
 
-    # PyTorch 2.4 on Windows rejects reset_peak_memory_stats before the first
-    # CUDA context exists, even when given a valid torch.device.
+    # Some Windows PyTorch builds reject reset_peak_memory_stats before the
+    # first CUDA context exists, even when given a valid torch.device.
     torch.cuda.init()
     torch.cuda.reset_peak_memory_stats(torch.device(requested_device))
     return torch

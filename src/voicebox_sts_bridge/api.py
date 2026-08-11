@@ -116,6 +116,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "local-video-upload-v1",
                 "clean-ui-labels-v1",
                 "production-console-ui-v1",
+                "secure-openvoice-runtime-v1",
             ],
         }
 

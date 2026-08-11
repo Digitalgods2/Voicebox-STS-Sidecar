@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools>=83"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "voicebox-sts-bridge"
-version = "0.5.0"
+version = "0.5.1"
 description = "Loopback-only companion bridge for local VoiceBox speech-to-speech conversion"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<9"]
+dev = ["pytest>=9.0.3,<10"]
 
 [project.scripts]
 voicebox-sts-bridge = "voicebox_sts_bridge.cli:main"
