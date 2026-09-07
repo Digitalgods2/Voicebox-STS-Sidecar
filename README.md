@@ -136,7 +136,7 @@ The YouTube path converts the complete soundtrack. If the source contains music,
 - Node.js 22 or newer for yt-dlp's current YouTube JavaScript runtime
 - Miniconda or another Conda-compatible installation for the isolated Python 3.10 inference prefix
 
-**macOS is not a supported host for full conversion.** VoiceBox and the isolated OpenVoice inference environment in this repository are Windows-only; there is no macOS equivalent documented here. (An NVIDIA GPU is not strictly required even on Windows — see [Inference hardware](#inference-hardware) for the CPU fallback — but macOS support is not implemented regardless.) A Mac (iMac included) can install and run the FastAPI bridge itself — useful for UI development, running the test suite, or building a macOS binary of the bridge server — but `engine-status` will report the OpenVoice engine as unavailable, and conversions that depend on it will not work, unless VoiceBox and the OpenVoice prefix exist on that same machine. See [macOS: install and compile](#macos-install-and-compile).
+**macOS is not a supported host for full conversion — but the blocker is VoiceBox, not this bridge.** `OpenVoiceEngine` locates its interpreter correctly on either platform (`.envs\openvoice-v2\python.exe` on Windows, `.envs/openvoice-v2/bin/python` on macOS/Linux), and an NVIDIA GPU is not required anywhere — see [Inference hardware](#inference-hardware) for the CPU fallback. What actually isn't available on macOS is Jamie Pine's VoiceBox app itself, the local service every conversion depends on for cloned voice profiles; there is no documented macOS build of it. A Mac (iMac included) can install and run the FastAPI bridge itself — useful for UI development, running the test suite, or building a macOS binary of the bridge server — but without VoiceBox reachable at `127.0.0.1:17493` on that same machine, conversions won't work regardless of how the OpenVoice environment is set up. See [macOS: install and compile](#macos-install-and-compile).
 
 ### Inference hardware
 
@@ -351,7 +351,7 @@ PYTHONPATH=src ./.venv/bin/python -m voicebox_sts_bridge engine-status
 PYTHONPATH=src ./.venv/bin/python -m voicebox_sts_bridge serve
 ```
 
-Open <http://127.0.0.1:8765>. `engine-status` will report the OpenVoice checks as missing unless an isolated OpenVoice environment also exists on this Mac at `.envs/openvoice-v2/python` (note: no `.exe` suffix on macOS) — building and validating that environment is not covered by this README.
+Open <http://127.0.0.1:8765>. `engine-status` will report the OpenVoice checks as missing unless an isolated OpenVoice environment also exists on this Mac at `.envs/openvoice-v2/bin/python` (conda places the interpreter under `bin/` on macOS and Linux, not directly in the prefix as on Windows — the bridge detects this automatically) — building and validating that environment, and getting VoiceBox itself running on macOS, is not covered by this README.
 
 **Compile a standalone binary:**
 

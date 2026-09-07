@@ -24,6 +24,15 @@ def _is_project_root(candidate: Path) -> bool:
     return (candidate / ".envs" / "openvoice-v2").is_dir()
 
 
+def _default_python_path(project_root: Path) -> Path:
+    """Conda puts the interpreter directly in the prefix on Windows
+    (python.exe) but under bin/ on macOS and Linux (bin/python)."""
+    env_root = project_root / ".envs" / "openvoice-v2"
+    if os.name == "nt":
+        return env_root / "python.exe"
+    return env_root / "bin" / "python"
+
+
 def _default_project_root() -> Path:
     override = os.getenv("BRIDGE_PROJECT_ROOT")
     if override:
@@ -135,7 +144,7 @@ class OpenVoiceEngine:
         device: str = "cuda:0",
     ) -> None:
         self.project_root = Path(project_root or _default_project_root()).expanduser().resolve()
-        self.python_path = Path(python_path or self.project_root / ".envs" / "openvoice-v2" / "python.exe").resolve()
+        self.python_path = Path(python_path or _default_python_path(self.project_root)).resolve()
         self.worker_path = Path(worker_path or Path(__file__).with_name("openvoice_worker.py")).resolve()
         if timeout_seconds <= 0 or not math.isfinite(float(timeout_seconds)):
             raise ValueError("timeout_seconds must be positive")
