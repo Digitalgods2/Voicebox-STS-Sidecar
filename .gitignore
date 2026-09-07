@@ -8,6 +8,10 @@ __pycache__/
 .playwright-cli/
 .coverage
 output/
+build/
+dist/
+*.spec
+/VoiceBoxBridge.exe
 .codex/
 .agents/
 AGENTS.local.md

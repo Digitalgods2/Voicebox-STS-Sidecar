@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from . import __version__
 from .audio_effects import AudioEffectsError, MAX_BRIGHTNESS_DB, MAX_PITCH_SEMITONES
 from .conversion_service import ConversionService
+from .logging_setup import tail_log
 from .media_store import MediaStore
 from .openvoice_engine import OpenVoiceEngine, OpenVoiceError
 from .settings import Settings
@@ -131,6 +132,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/engine/status")
     def engine_status() -> dict[str, Any]:
         return engine_call(engine.status)
+
+    @app.get("/api/logs", include_in_schema=False)
+    def logs(lines: int = Query(default=200, ge=1, le=2000)) -> dict[str, Any]:
+        return {"lines": tail_log(settings.data_dir, lines)}
 
     @app.post("/api/engine/probe")
     def engine_probe() -> dict[str, Any]:

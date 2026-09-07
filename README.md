@@ -136,6 +136,8 @@ The YouTube path converts the complete soundtrack. If the source contains music,
 - Node.js 22 or newer for yt-dlp's current YouTube JavaScript runtime
 - Miniconda or another Conda-compatible installation for the isolated Python 3.10 inference prefix
 
+**macOS is not a supported host for full conversion.** VoiceBox and the isolated OpenVoice inference environment in this repository are Windows-only and require an NVIDIA CUDA GPU; there is no macOS equivalent documented here. A Mac (iMac included) can install and run the FastAPI bridge itself — useful for UI development, running the test suite, or building a macOS binary of the bridge server — but `engine-status` will report the OpenVoice engine as unavailable, and conversions that depend on it will not work, unless VoiceBox and the OpenVoice prefix exist on that same machine. See [macOS: install and compile](#macos-install-and-compile).
+
 ### Inference hardware
 
 - NVIDIA CUDA-capable GPU recommended
@@ -159,7 +161,11 @@ The YouTube source cache retains at most one active downloaded video under `data
 
 ## Quick start
 
-If the bridge and inference environments already exist:
+If the bridge and inference environments already exist, there are two ways to run it:
+
+**Compiled app (recommended for everyday use).** Double-click `VoiceBoxBridge.exe` in the repository root (see [Compiling a standalone app](#compiling-a-standalone-app) if it is not built yet). It runs with no console window, reuses an existing compatible bridge when possible, starts VoiceBox when necessary, launches the sidecar on `127.0.0.1:8765`, and opens the browser. A tray icon appears with **Open Bridge**, **View Logs**, and **Quit**; use Quit (or end the process) to stop the sidecar service — nothing keeps running in the background afterward.
+
+**Console launcher (for development, or before the app is built).**
 
 1. Start VoiceBox.
 2. Double-click [`start-bridge.bat`](start-bridge.bat).
@@ -172,7 +178,7 @@ Run a non-launching preflight from PowerShell:
 cmd /c start-bridge.bat --check
 ```
 
-Open the UI directly at <http://127.0.0.1:8765>.
+Open the UI directly at <http://127.0.0.1:8765>. If something looks wrong and there is no console to read (the compiled app), expand the **Diagnostics** panel at the bottom of the page for a live tail of the log file, or use the tray icon's **View Logs**.
 
 ## Complete installation from a fresh clone
 
@@ -288,6 +294,80 @@ cmd /c start-bridge.bat --check
 ```powershell
 cmd /c start-bridge.bat
 ```
+
+## Compiling a standalone app
+
+Steps 1–6 above must already be done (dependencies installed, the OpenVoice environment and checkpoint in place) before compiling. The compiled app is a launcher around the same bridge code; it does not replace steps 1–6.
+
+### Windows: build `VoiceBoxBridge.exe`
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install pyinstaller pillow pystray
+.\build_assets\build.bat
+```
+
+This regenerates the icon (`build_assets\icon.ico`), builds a windowed, single-file executable with PyInstaller, and copies it to `VoiceBoxBridge.exe` in the repository root. It must stay there, next to `.envs\` and `start-bridge.bat`, because it locates the isolated OpenVoice environment relative to its own folder (it also tolerates being run once out of `dist\`, but not moved somewhere unrelated).
+
+The result:
+
+- No console window. Uvicorn runs inside the same process as the launcher, so ending that one process always stops the server — nothing is left running.
+- A system-tray icon with **Open Bridge**, **View Logs**, and **Quit**.
+- Logs go to a rotating file at `data\logs\bridge.log` (capped around 4 MB) instead of a console, and are also viewable from the web UI's **Diagnostics** panel (`GET /api/logs`).
+- Hard startup failures (for example, port 8765 owned by another application) are reported with a Windows message box, since there is no console to print to.
+
+Rebuild any time after changing bridge code by re-running `build_assets\build.bat`.
+
+### macOS: install and compile
+
+This builds and runs the FastAPI bridge server on macOS (including Apple Silicon iMacs). It does **not** give you working voice conversion on its own — see the platform note under [Requirements](#requirements). It is useful for developing the web UI, running the test suite, or exercising the bridge's HTTP API against a VoiceBox/OpenVoice pair reachable at `127.0.0.1` on that same Mac, if you have separately set one up.
+
+**Install:**
+
+```bash
+brew install python@3.12 ffmpeg node git
+git clone <this repository's URL>
+cd VoiceBox-STS-Bridge
+python3.12 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
+./.venv/bin/python -m pip install -e ".[dev]"
+```
+
+Node must be version 22 or newer (`node --version`); install one with `brew install node@22` if Homebrew's default is older.
+
+**Run in development mode:**
+
+```bash
+PYTHONPATH=src ./.venv/bin/python -m voicebox_sts_bridge engine-status
+PYTHONPATH=src ./.venv/bin/python -m voicebox_sts_bridge serve
+```
+
+Open <http://127.0.0.1:8765>. `engine-status` will report the OpenVoice checks as missing unless an isolated OpenVoice environment also exists on this Mac at `.envs/openvoice-v2/python` (note: no `.exe` suffix on macOS) — building and validating that environment is not covered by this README.
+
+**Compile a standalone binary:**
+
+```bash
+./.venv/bin/python -m pip install pyinstaller pillow
+./.venv/bin/python build_assets/make_icon.py   # also writes build_assets/icon.icns
+
+./.venv/bin/python -m PyInstaller \
+  --onefile \
+  --name VoiceBoxBridge \
+  --icon build_assets/icon.icns \
+  --paths src \
+  --add-data "src/voicebox_sts_bridge/static:voicebox_sts_bridge/static" \
+  --add-data "src/voicebox_sts_bridge/openvoice_worker.py:voicebox_sts_bridge" \
+  --collect-all uvicorn \
+  --hidden-import voicebox_sts_bridge.api \
+  src/voicebox_sts_bridge/__main__.py
+```
+
+Run it from Terminal the same way you would use the CLI:
+
+```bash
+./dist/VoiceBoxBridge serve
+```
+
+This mirrors the *console* Windows launcher (a foreground process, `Ctrl+C` to stop) — the no-console/tray build described above is Windows-specific (it relies on `ctypes.windll`, `taskkill`, and Windows message boxes in `build_assets/launcher.py`) and has not been ported to macOS.
 
 ## Using the web UI
 
@@ -479,13 +559,16 @@ Audio/chunk intermediates are intentionally retained for debugging, quality revi
 ```text
 config/                              # Pinned dependency and model provenance
 docs/                                # Engine audit and privacy-safe validation notes
+build_assets/                        # Icon generator, PyInstaller launcher, and build.bat
 src/voicebox_sts_bridge/             # Application package
 src/voicebox_sts_bridge/audio_effects.py # Exact-duration pitch and tone DSP
+src/voicebox_sts_bridge/logging_setup.py # Rotating log file used by the app and the compiled launcher
 src/voicebox_sts_bridge/static/      # Single-page web UI
 tests/                               # Unit and pipeline tests
 AGENTS.md                            # Project architecture and operating constraints
 pyproject.toml                       # Package metadata and dependencies
-start-bridge.bat                     # Windows launcher/preflight
+start-bridge.bat                     # Windows console launcher/preflight
+VoiceBoxBridge.exe                   # Compiled Windows app (built locally; not committed - see Compiling a standalone app)
 ```
 
 The following large or machine-specific folders are deliberately ignored:
@@ -497,6 +580,9 @@ The following large or machine-specific folders are deliberately ignored:
 third_party/
 data/*
 output/
+build/
+dist/
+VoiceBoxBridge.exe
 ```
 
 ## Development and tests
@@ -582,6 +668,8 @@ $env:PYTHONPATH = "src"
 .\.venv\Scripts\python.exe -m voicebox_sts_bridge engine-status
 ```
 
+If you are running the compiled `VoiceBoxBridge.exe`, this usually means it was moved somewhere other than the repository root (it locates `.envs\` relative to its own folder, with a one-level fallback for `dist\`). Move it back next to `start-bridge.bat`, or set `BRIDGE_PROJECT_ROOT` to the repository's absolute path.
+
 ### CUDA probe fails
 
 - Confirm the isolated environment contains `torch==2.13.0+cu126`, not an older or CPU-only build.
@@ -638,9 +726,9 @@ A failed replacement download leaves the previous valid cache in place. At stead
 
 The sidecar copies the best downloaded video codec without re-encoding. Browser Matroska/codec support varies. Use the **Open or save the MKV master** link and play it in VLC. The file is still fully decoded by FFmpeg before completion is reported.
 
-### A long job stops when the console closes
+### A long job stops when the app closes
 
-Page refreshes are supported, but the bridge process must remain running. Closing the console terminates the active background task. Intermediates and manifests remain on disk for diagnosis; automatic process-restart recovery is not implemented yet.
+Page refreshes are supported, but the bridge process must remain running. Closing the console (`start-bridge.bat`), or quitting the compiled app from its tray icon (or ending its process), terminates the active background task. Intermediates and manifests remain on disk for diagnosis; automatic process-restart recovery is not implemented yet.
 
 ### Port 8765 is already in use
 

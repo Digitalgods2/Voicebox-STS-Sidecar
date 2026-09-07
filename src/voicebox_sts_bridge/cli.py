@@ -80,11 +80,15 @@ def main(argv: list[str] | None = None) -> int:
                 from .api import create_app
             except ImportError as exc:
                 raise RuntimeError('Install bridge dependencies with: python -m pip install -e ".[dev]"') from exc
+            from .logging_setup import configure_logging
+
+            configure_logging(settings.data_dir)
             uvicorn.run(
                 create_app(settings),
                 host=settings.bridge_host,
                 port=settings.bridge_port,
                 reload=False,
+                log_config=None,
             )
             return 0
 

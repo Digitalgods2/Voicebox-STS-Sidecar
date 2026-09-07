@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 from typing import Any
 import wave
@@ -19,7 +20,24 @@ class OpenVoiceError(RuntimeError):
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 
+def _is_project_root(candidate: Path) -> bool:
+    return (candidate / ".envs" / "openvoice-v2").is_dir()
+
+
 def _default_project_root() -> Path:
+    override = os.getenv("BRIDGE_PROJECT_ROOT")
+    if override:
+        return Path(override).expanduser().resolve()
+    if getattr(sys, "frozen", False):
+        # A frozen executable's __file__ lives in a temporary extraction
+        # directory, not next to the project's .envs/third_party folders.
+        # The exe is expected to sit in the project root, but tolerate it
+        # being run one level down (e.g. straight out of a build/dist folder).
+        exe_dir = Path(sys.executable).resolve().parent
+        for candidate in (exe_dir, exe_dir.parent):
+            if _is_project_root(candidate):
+                return candidate
+        return exe_dir
     return Path(__file__).resolve().parents[2]
 
 
