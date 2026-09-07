@@ -22,11 +22,15 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Local companion bridge for VoiceBox STS workflows")
     parser.add_argument("--voicebox-url", help="Loopback VoiceBox API URL")
     parser.add_argument("--data-dir", type=Path, help="Project-local runtime data directory")
+    parser.add_argument(
+        "--device",
+        help="Inference device: 'cpu', 'cuda', or 'cuda:<index>' (default from BRIDGE_ENGINE_DEVICE, else cuda:0)",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("health", help="Check the local VoiceBox backend")
     commands.add_parser("profiles", help="List VoiceBox profiles")
     commands.add_parser("engine-status", help="Check the isolated OpenVoice installation without loading its model")
-    commands.add_parser("engine-probe", help="Load the OpenVoice model on CUDA and report readiness")
+    commands.add_parser("engine-probe", help="Load the OpenVoice model (CUDA by default; pass --device cpu to run without a GPU) and report readiness")
     samples = commands.add_parser("samples", help="List reference samples for a profile")
     samples.add_argument("profile_id")
     fetch = commands.add_parser("fetch-reference", help="Cache one explicitly selected reference WAV")
@@ -67,6 +71,8 @@ def main(argv: list[str] | None = None) -> int:
             overrides["voicebox_base_url"] = args.voicebox_url
         if args.data_dir:
             overrides["data_dir"] = args.data_dir
+        if args.device:
+            overrides["engine_device"] = args.device
         if args.command == "serve":
             if args.host:
                 overrides["bridge_host"] = args.host
@@ -93,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command in {"engine-status", "engine-probe"}:
-            engine = OpenVoiceEngine()
+            engine = OpenVoiceEngine(device=settings.engine_device)
             _print(engine.status() if args.command == "engine-status" else engine.probe())
             return 0
 
@@ -111,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "fetch-reference":
             _print(client.fetch_reference(args.profile_id, args.sample_id, settings.data_dir, overwrite=args.overwrite))
         elif args.command == "convert":
-            conversions = ConversionService(settings.data_dir, client, OpenVoiceEngine())
+            conversions = ConversionService(settings.data_dir, client, OpenVoiceEngine(device=settings.engine_device))
             _print(
                 conversions.convert(
                     args.source_audio,

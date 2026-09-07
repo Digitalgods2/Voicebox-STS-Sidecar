@@ -132,6 +132,7 @@ class OpenVoiceEngine:
         python_path: str | Path | None = None,
         worker_path: str | Path | None = None,
         runner: Runner = subprocess.run,
+        device: str = "cuda:0",
     ) -> None:
         self.project_root = Path(project_root or _default_project_root()).expanduser().resolve()
         self.python_path = Path(python_path or self.project_root / ".envs" / "openvoice-v2" / "python.exe").resolve()
@@ -140,6 +141,7 @@ class OpenVoiceEngine:
             raise ValueError("timeout_seconds must be positive")
         self.timeout_seconds = float(timeout_seconds)
         self._runner = runner
+        self.device = _validate_device(device)
 
     def status(self) -> dict[str, Any]:
         """Check filesystem and dependency readiness without importing or loading models."""
@@ -156,12 +158,15 @@ class OpenVoiceEngine:
                 "checks": local_checks,
                 "project_root": str(self.project_root),
                 "python": str(self.python_path),
+                "configured_device": self.device,
             }
-        return self._invoke("status", timeout_seconds=min(self.timeout_seconds, 30.0))
+        payload = self._invoke("status", timeout_seconds=min(self.timeout_seconds, 30.0))
+        payload["configured_device"] = self.device
+        return payload
 
-    def probe(self, *, device: str = "cuda:0") -> dict[str, Any]:
+    def probe(self, *, device: str | None = None) -> dict[str, Any]:
         """Import OpenVoice in its isolated environment and load the local converter model."""
-        return self._invoke("probe", "--device", _validate_device(device))
+        return self._invoke("probe", "--device", _validate_device(device) if device is not None else self.device)
 
     def convert(
         self,
@@ -169,7 +174,7 @@ class OpenVoiceEngine:
         target_reference: str | Path,
         output_audio: str | Path,
         *,
-        device: str = "cuda:0",
+        device: str | None = None,
         tau: float = 0.3,
         overwrite: bool = False,
     ) -> dict[str, Any]:
@@ -203,7 +208,7 @@ class OpenVoiceEngine:
                 "--output",
                 str(temporary_path),
                 "--device",
-                _validate_device(device),
+                _validate_device(device) if device is not None else self.device,
                 "--tau",
                 str(_validate_tau(tau)),
             )
@@ -223,7 +228,7 @@ class OpenVoiceEngine:
         conversions: list[tuple[str | Path, str | Path]],
         target_reference: str | Path,
         *,
-        device: str = "cuda:0",
+        device: str | None = None,
         tau: float = 0.3,
         overwrite: bool = False,
         progress_path: str | Path | None = None,
@@ -234,7 +239,7 @@ class OpenVoiceEngine:
         if len(conversions) > 2000:
             raise ValueError("conversions cannot contain more than 2000 items")
         target = _require_input_file(target_reference, "target_reference")
-        requested_device = _validate_device(device)
+        requested_device = _validate_device(device) if device is not None else self.device
         value_tau = _validate_tau(tau)
 
         validated: list[tuple[Path, Path]] = []

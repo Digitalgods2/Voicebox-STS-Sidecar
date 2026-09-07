@@ -69,7 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         timeout_seconds=settings.request_timeout_seconds,
         max_reference_bytes=settings.max_reference_bytes,
     )
-    engine = OpenVoiceEngine()
+    engine = OpenVoiceEngine(device=settings.engine_device)
     conversion_lock = threading.Lock()
     conversions = ConversionService(
         settings.data_dir,

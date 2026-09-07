@@ -377,11 +377,11 @@
           <div class="engine-facts" aria-label="Conversion engine facts">
             <div class="engine-fact"><span>Runtime</span><strong id="engine-runtime">checking</strong></div>
             <div class="engine-fact"><span>Checkpoint</span><strong id="engine-checkpoint">checking</strong></div>
-            <div class="engine-fact"><span>Precision</span><strong>FP32</strong></div>
+            <div class="engine-fact"><span>Device</span><strong id="engine-device">checking</strong></div>
             <div class="engine-fact"><span>Audio</span><strong>22.05 kHz mono</strong></div>
           </div>
           <div class="action-row">
-            <button id="probe" type="button" class="secondary" disabled>Load model and probe CUDA</button>
+            <button id="probe" type="button" class="secondary" disabled>Load model and probe</button>
           </div>
           <p id="probe-summary" class="status" role="status" aria-live="polite"></p>
           <details id="probe-details" hidden>
@@ -658,6 +658,7 @@
     const engineCardBadge = document.querySelector('#engine-card-badge');
     const engineRuntime = document.querySelector('#engine-runtime');
     const engineCheckpoint = document.querySelector('#engine-checkpoint');
+    const engineDevice = document.querySelector('#engine-device');
     const source = document.querySelector('#source');
     const chooseSourceButton = document.querySelector('#choose-source');
     const sourceName = document.querySelector('#source-name');
@@ -1248,6 +1249,7 @@
         engineCardBadge.className = `stage-tag mini-badge${state.ready ? ' ok' : ' bad'}`;
         engineRuntime.textContent = state.python_version ? `Python ${state.python_version}` : 'available';
         engineCheckpoint.textContent = state.checks?.converter_checkpoint ? 'verified' : 'missing';
+        engineDevice.textContent = state.configured_device || 'cuda:0';
         probeButton.disabled = !state.ready;
       } catch (error) {
         engineReady = false;
@@ -1258,6 +1260,7 @@
         engineCardBadge.className = 'stage-tag mini-badge bad';
         engineRuntime.textContent = 'unavailable';
         engineCheckpoint.textContent = 'unknown';
+        engineDevice.textContent = 'unknown';
       }
 
       try {
@@ -1436,13 +1439,14 @@
 
     probeButton.addEventListener('click', async () => {
       probeButton.disabled = true;
-      setStatus(probeSummary, 'Loading the model on CUDA…');
+      setStatus(probeSummary, `Loading the model on ${engineDevice.textContent || 'the configured device'}…`);
       try {
         const body = await json('/api/engine/probe', { method: 'POST' });
-        setStatus(probeSummary, body.device ? `Probe complete on ${body.device}.` : 'CUDA probe completed successfully.', 'ok');
+        setStatus(probeSummary, body.device ? `Probe complete on ${body.device}.` : 'Probe completed successfully.', 'ok');
         engineCardBadge.textContent = body.device ? `${body.device} loaded` : 'model loaded';
         engineCardBadge.className = 'stage-tag mini-badge ok';
         engineRuntime.textContent = body.cuda_device_name || body.device || engineRuntime.textContent;
+        engineDevice.textContent = body.device || engineDevice.textContent;
         showDetails(probeDetails, probeResult, body);
       } catch (error) {
         setStatus(probeSummary, error.message, 'bad');

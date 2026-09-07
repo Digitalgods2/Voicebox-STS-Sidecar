@@ -136,14 +136,13 @@ The YouTube path converts the complete soundtrack. If the source contains music,
 - Node.js 22 or newer for yt-dlp's current YouTube JavaScript runtime
 - Miniconda or another Conda-compatible installation for the isolated Python 3.10 inference prefix
 
-**macOS is not a supported host for full conversion.** VoiceBox and the isolated OpenVoice inference environment in this repository are Windows-only and require an NVIDIA CUDA GPU; there is no macOS equivalent documented here. A Mac (iMac included) can install and run the FastAPI bridge itself — useful for UI development, running the test suite, or building a macOS binary of the bridge server — but `engine-status` will report the OpenVoice engine as unavailable, and conversions that depend on it will not work, unless VoiceBox and the OpenVoice prefix exist on that same machine. See [macOS: install and compile](#macos-install-and-compile).
+**macOS is not a supported host for full conversion.** VoiceBox and the isolated OpenVoice inference environment in this repository are Windows-only; there is no macOS equivalent documented here. (An NVIDIA GPU is not strictly required even on Windows — see [Inference hardware](#inference-hardware) for the CPU fallback — but macOS support is not implemented regardless.) A Mac (iMac included) can install and run the FastAPI bridge itself — useful for UI development, running the test suite, or building a macOS binary of the bridge server — but `engine-status` will report the OpenVoice engine as unavailable, and conversions that depend on it will not work, unless VoiceBox and the OpenVoice prefix exist on that same machine. See [macOS: install and compile](#macos-install-and-compile).
 
 ### Inference hardware
 
-- NVIDIA CUDA-capable GPU recommended
+- NVIDIA CUDA-capable GPU recommended; defaults to `cuda:0`
 - Available VRAM determines practical source and chunk sizes; benchmark a short clip before long jobs
-- Current implementation defaults to `cuda:0`
-- CPU mode exists at the engine layer but is not exposed as the normal web workflow and will be much slower
+- No NVIDIA GPU? Set `BRIDGE_ENGINE_DEVICE=cpu` (or pass `--device cpu` to any CLI command) before launching. This runs the whole web workflow — probe, single conversions, YouTube jobs, and imported-video jobs — on CPU instead of CUDA. It works end to end but is much slower than a GPU, especially for long videos; the **Check the conversion engine** card on the page shows which device is actually configured.
 
 ### Disk and downloads
 
@@ -217,11 +216,22 @@ This installs FastAPI, Uvicorn, pytest, and a patched yt-dlp release. The projec
 conda create --prefix ".\.envs\openvoice-v2" python=3.10.20 pip -y
 ```
 
-Install the pinned CUDA 12.6 PyTorch build first. PyTorch 2.13.0 is the minimum accepted version because earlier releases are covered by the repository's reviewed security advisories:
+Install PyTorch first. PyTorch 2.13.0 is the minimum accepted version because earlier releases are covered by the repository's reviewed security advisories.
+
+With an NVIDIA GPU, install the pinned CUDA 12.6 build:
 
 ```powershell
 .\.envs\openvoice-v2\python.exe -m pip install --index-url https://download.pytorch.org/whl/cu126 torch==2.13.0
 ```
+
+Without an NVIDIA GPU, install the CPU-only build instead (a much smaller download, no CUDA runtime included), and set `BRIDGE_ENGINE_DEVICE=cpu` before launching the bridge:
+
+```powershell
+.\.envs\openvoice-v2\python.exe -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.13.0
+$env:BRIDGE_ENGINE_DEVICE = "cpu"
+```
+
+CPU inference works through the full web workflow but is significantly slower than CUDA, especially for long videos.
 
 Install only the direct converter dependencies. Do not install OpenVoice's full historical requirements file; it pulls unrelated demos, transcription stacks, and cloud-facing packages.
 
@@ -287,7 +297,7 @@ $env:PYTHONPATH = "src"
 cmd /c start-bridge.bat --check
 ```
 
-`engine-status` checks files and imports without loading the model. `engine-probe` performs a real CUDA model load and reports device and peak-memory information.
+`engine-status` checks files and imports without loading the model. `engine-probe` performs a real model load on the configured device (`cuda:0` by default; pass `--device cpu` for a CPU-only machine) and reports device and peak-memory information.
 
 ### 7. Launch
 
@@ -482,7 +492,7 @@ Interactive OpenAPI documentation is available at <http://127.0.0.1:8765/docs> w
 | `GET` | `/api/profiles/{profile_id}/samples` | List samples for one profile |
 | `POST` | `/api/references` | Cache and validate one reference WAV |
 | `GET` | `/api/engine/status` | Check isolated engine readiness without loading the model |
-| `POST` | `/api/engine/probe` | Load the model and probe CUDA |
+| `POST` | `/api/engine/probe` | Load the model on the configured device and report readiness |
 | `POST` | `/api/inputs?filename=...` | Stream a raw browser-selected audio file into local storage |
 | `POST` | `/api/conversions` | Run one synchronous local-audio conversion |
 | `POST` | `/api/video-inputs?filename=...` | Stream a raw browser-selected video into isolated local storage |
@@ -524,8 +534,11 @@ An imported-video job uses the same fields but replaces `youtube_url` with the `
 | `BRIDGE_HOST` | `127.0.0.1` | Sidecar bind address; must resolve to loopback |
 | `BRIDGE_PORT` | `8765` | Sidecar HTTP port |
 | `BRIDGE_DATA_DIR` | `data` | Root for models, caches, inputs, manifests, and outputs |
+| `BRIDGE_ENGINE_DEVICE` | `cuda:0` | OpenVoice inference device: `cpu`, `cuda`, or `cuda:<index>` |
 
 Non-loopback VoiceBox URLs and bridge hosts are rejected by configuration validation.
+
+Every CLI command also accepts `--device` to override `BRIDGE_ENGINE_DEVICE` for a single run, for example `voicebox-sts-bridge --device cpu engine-probe`.
 
 ## Runtime data layout
 
@@ -675,6 +688,7 @@ If you are running the compiled `VoiceBoxBridge.exe`, this usually means it was 
 - Confirm the isolated environment contains `torch==2.13.0+cu126`, not an older or CPU-only build.
 - Run `nvidia-smi` and confirm the NVIDIA driver detects the GPU.
 - Do not install the ML packages into the main Python 3.13 bridge environment.
+- No compatible NVIDIA GPU on this machine at all? Install the CPU-only PyTorch build instead (see [step 3](#3-create-the-isolated-openvoice-environment)) and set `BRIDGE_ENGINE_DEVICE=cpu` — this is a legitimate, working configuration, just slower than CUDA.
 
 ### YouTube tools are not ready
 

@@ -4,7 +4,10 @@ from dataclasses import dataclass
 import ipaddress
 import os
 from pathlib import Path
+import re
 from urllib.parse import urlsplit
+
+_DEVICE_PATTERN = re.compile(r"(?:cpu|cuda(?::\d+)?)")
 
 
 def _is_loopback_host(host: str | None) -> bool:
@@ -35,6 +38,7 @@ class Settings:
     data_dir: Path = Path("data")
     request_timeout_seconds: float = 15.0
     max_reference_bytes: int = 100 * 1024 * 1024
+    engine_device: str = "cuda:0"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "voicebox_base_url", _validate_loopback_url(self.voicebox_base_url))
@@ -46,6 +50,8 @@ class Settings:
             raise ValueError("Request timeout must be positive")
         if self.max_reference_bytes <= 0:
             raise ValueError("Maximum reference size must be positive")
+        if not isinstance(self.engine_device, str) or _DEVICE_PATTERN.fullmatch(self.engine_device) is None:
+            raise ValueError("Engine device must be 'cpu', 'cuda', or 'cuda:<index>'")
         object.__setattr__(self, "data_dir", Path(self.data_dir).resolve())
 
     @classmethod
@@ -56,4 +62,5 @@ class Settings:
             bridge_host=os.getenv("BRIDGE_HOST", defaults.bridge_host),
             bridge_port=int(os.getenv("BRIDGE_PORT", str(defaults.bridge_port))),
             data_dir=Path(os.getenv("BRIDGE_DATA_DIR", str(defaults.data_dir))),
+            engine_device=os.getenv("BRIDGE_ENGINE_DEVICE", defaults.engine_device),
         )
