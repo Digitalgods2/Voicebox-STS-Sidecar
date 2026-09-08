@@ -4,6 +4,7 @@ from contextlib import redirect_stderr, redirect_stdout
 import hashlib
 from io import StringIO
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -27,8 +28,15 @@ def write_wav(path: Path, *, seconds: float = 0.25, sample_rate: int = 16_000) -
         output.writeframes(b"\x00\x00" * frames)
 
 
+def isolated_python_path(root: Path) -> Path:
+    env_root = root / ".envs" / "openvoice-v2"
+    if os.name == "nt":
+        return env_root / "python.exe"
+    return env_root / "bin" / "python"
+
+
 def scaffold_project(root: Path) -> None:
-    python = root / ".envs" / "openvoice-v2" / "python.exe"
+    python = isolated_python_path(root)
     python.parent.mkdir(parents=True)
     python.touch()
     (root / "third_party" / "OpenVoice").mkdir(parents=True)
@@ -48,7 +56,7 @@ def scaffold_project(root: Path) -> None:
 class OpenVoiceEngineTests(unittest.TestCase):
     def test_status_uses_isolated_python_without_loading_a_model(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             calls: list[list[str]] = []
 
@@ -65,12 +73,12 @@ class OpenVoiceEngineTests(unittest.TestCase):
 
             self.assertTrue(result["ready"])
             self.assertFalse(result["model_loaded"])
-            self.assertEqual(Path(calls[0][0]), root / ".envs" / "openvoice-v2" / "python.exe")
+            self.assertEqual(Path(calls[0][0]), isolated_python_path(root))
             self.assertIn("status", calls[0])
 
     def test_worker_environment_does_not_inherit_bridge_python_paths(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             captured_environment: dict[str, str] = {}
 
@@ -99,7 +107,7 @@ class OpenVoiceEngineTests(unittest.TestCase):
 
     def test_probe_requests_a_real_model_load_in_the_worker(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             calls: list[list[str]] = []
 
@@ -119,7 +127,7 @@ class OpenVoiceEngineTests(unittest.TestCase):
 
     def test_convert_accepts_non_uuid_paths_and_validates_the_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             source = root / "input files" / "performance take 01.flac"
             target = root / "references" / "Jamie's approved voice.wav"
@@ -154,7 +162,7 @@ class OpenVoiceEngineTests(unittest.TestCase):
 
     def test_convert_batch_uses_one_worker_invocation_and_publishes_all_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             source_a = root / "chunks" / "a.wav"
             source_b = root / "chunks" / "b.wav"
@@ -199,7 +207,7 @@ class OpenVoiceEngineTests(unittest.TestCase):
 
     def test_convert_refuses_source_as_output_and_existing_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             source = root / "source.wav"
             target = root / "target.wav"
@@ -216,7 +224,7 @@ class OpenVoiceEngineTests(unittest.TestCase):
 
     def test_convert_rejects_a_truncated_wave_after_reading_its_frames(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             source = root / "source.wav"
             target = root / "target.wav"
@@ -237,7 +245,7 @@ class OpenVoiceEngineTests(unittest.TestCase):
 
     def test_overwrite_is_atomic_and_timeout_removes_only_the_temporary_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             source = root / "source.wav"
             target = root / "target.wav"
@@ -258,7 +266,7 @@ class OpenVoiceEngineTests(unittest.TestCase):
 
     def test_worker_errors_are_converted_to_openvoice_errors(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
 
             def runner(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
@@ -282,7 +290,7 @@ class OpenVoiceWorkerTests(unittest.TestCase):
 
     def test_batch_worker_loads_converter_and_target_embedding_once(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             source_a = root / "a.wav"
             source_b = root / "b.wav"
@@ -339,7 +347,7 @@ class OpenVoiceWorkerTests(unittest.TestCase):
 
     def test_status_only_checks_files_and_module_specs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             dependencies: list[str] = []
 
@@ -375,7 +383,7 @@ class OpenVoiceWorkerTests(unittest.TestCase):
 
     def test_status_rejects_a_vulnerable_torch_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             with patch.object(openvoice_worker, "_dependency_available", return_value=True), patch.object(
                 openvoice_worker, "_installed_dependency_version", return_value="2.12.1+cu126"
@@ -388,7 +396,7 @@ class OpenVoiceWorkerTests(unittest.TestCase):
 
     def test_checkpoint_hash_mismatch_fails_before_deserialization(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             checkpoint = root / "data" / "models" / "openvoice-v2" / "converter" / "checkpoint.pth"
             checkpoint.write_bytes(b"tampered checkpoint")
@@ -404,7 +412,7 @@ class OpenVoiceWorkerTests(unittest.TestCase):
 
     def test_worker_directly_extracts_both_embeddings_and_keeps_stdout_json_clean(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             source = root / "source performance.wav"
             target = root / "target reference.wav"
@@ -529,7 +537,7 @@ class OpenVoiceWorkerTests(unittest.TestCase):
 
     def test_checkpoint_state_mismatch_fails_before_device_transfer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
 
             class MismatchedModel:
@@ -571,7 +579,7 @@ class OpenVoiceWorkerTests(unittest.TestCase):
 
     def test_probe_reports_cuda_name_and_peak_memory_after_synchronizing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             events: list[str] = []
 
@@ -626,7 +634,7 @@ class OpenVoiceWorkerTests(unittest.TestCase):
 
     def test_worker_rejects_source_as_output_before_model_loading(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scaffold_project(root)
             source = root / "source.wav"
             target = root / "target.wav"
