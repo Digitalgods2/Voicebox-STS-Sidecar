@@ -150,7 +150,7 @@ The repository intentionally excludes virtual environments, upstream source, mod
 
 One-time setup downloads include:
 
-- the official CUDA-enabled PyTorch 2.13.0 wheel: **2,594,544,868 bytes** (about 2.42 GiB), plus its dependencies;
+- the official CUDA-enabled PyTorch 2.13.0 wheel: **2,594,544,868 bytes** (about 2.42 GiB), plus its dependencies; on macOS this is instead the plain PyPI `torch==2.13.0` wheel (no CUDA build exists for macOS), about **111 MB**;
 - OpenVoice source at a pinned Git revision;
 - the OpenVoice V2 converter checkpoint: **131,320,490 bytes** (about 131 MB), MIT licensed.
 
@@ -336,13 +336,79 @@ This builds and runs the FastAPI bridge server on macOS (including Apple Silicon
 ```bash
 brew install python@3.12 ffmpeg node git
 git clone <this repository's URL>
-cd VoiceBox-STS-Bridge
+cd Voicebox-STS-Sidecar
 python3.12 -m venv .venv
 ./.venv/bin/python -m pip install --upgrade pip
 ./.venv/bin/python -m pip install -e ".[dev]"
 ```
 
 Node must be version 22 or newer (`node --version`); install one with `brew install node@22` if Homebrew's default is older.
+
+**Isolated OpenVoice environment (optional, CPU/MPS — no NVIDIA GPU exists on a Mac):**
+
+This is the macOS equivalent of steps 3–5 under [Complete installation from a fresh clone](#complete-installation-from-a-fresh-clone), with the differences that actually come up on macOS called out below.
+
+```bash
+brew install --cask miniconda   # or another Conda-compatible installation
+```
+
+Conda's default `defaults`/`pkgs/main` channels now gate `conda create` behind an interactive Anaconda Terms-of-Service acceptance (`conda tos accept ...`), which blocks a non-interactive setup. Using the community-run conda-forge channel instead sidesteps that entirely:
+
+```bash
+conda create --prefix "./.envs/openvoice-v2" -c conda-forge --override-channels python=3.10.20 pip -y
+```
+
+Install PyTorch — on macOS there is no separate CUDA/CPU wheel to choose between (Apple Silicon has no CUDA at all), so this is just a plain install; it runs on the CPU or, where the installed OpenVoice/PyTorch build supports it, Apple's MPS backend:
+
+```bash
+./.envs/openvoice-v2/bin/python -m pip install torch==2.13.0
+```
+
+Install the same pinned direct converter dependencies as the Windows instructions (versions are also listed in [`config/openvoice-v2.direct-requirements.txt`](config/openvoice-v2.direct-requirements.txt)):
+
+```bash
+./.envs/openvoice-v2/bin/python -m pip install \
+  numpy==1.26.4 \
+  librosa==0.10.2.post1 \
+  soundfile==0.12.1 \
+  inflect==7.0.0 \
+  Unidecode==1.3.7 \
+  eng_to_ipa==0.0.2 \
+  pypinyin==0.50.0 \
+  jieba==0.42.1 \
+  cn2an==0.5.22
+```
+
+Check out the pinned OpenVoice source (same commands as Windows):
+
+```bash
+git clone https://github.com/myshell-ai/OpenVoice third_party/OpenVoice
+git -C third_party/OpenVoice checkout 74a1d147b17a8c3092dd5430504bd83ef6c7eb23
+git -C third_party/OpenVoice rev-parse HEAD   # must print 74a1d147b17a8c3092dd5430504bd83ef6c7eb23
+```
+
+Download and verify the converter checkpoint (~131 MB, MIT licensed; see [Disk and downloads](#disk-and-downloads) for full provenance):
+
+```bash
+modelRevision="f36e7edfe1684461a8343844af60babc2efbb727"
+modelBase="https://huggingface.co/myshell-ai/OpenVoiceV2/resolve/$modelRevision/converter"
+modelDirectory="data/models/openvoice-v2/converter"
+mkdir -p "$modelDirectory"
+curl -fL "$modelBase/config.json?download=true" -o "$modelDirectory/config.json"
+curl -fL "$modelBase/checkpoint.pth?download=true" -o "$modelDirectory/checkpoint.pth"
+shasum -a 256 "$modelDirectory/checkpoint.pth"   # must print 9652c27e92b6b2a91632590ac9962ef7ae2b712e5c5b7f4c34ec55ee2b37ab9e
+```
+
+Verify the runtime (`--device` is a *global* option and must come before the subcommand, not after it):
+
+```bash
+export PYTHONPATH=src
+export BRIDGE_ENGINE_DEVICE=cpu
+./.venv/bin/python -m voicebox_sts_bridge engine-status
+./.venv/bin/python -m voicebox_sts_bridge --device cpu engine-probe
+```
+
+`engine-probe` on CPU performs a real model load — expect it to take on the order of a minute, much slower than a CUDA GPU.
 
 **Run in development mode:**
 
@@ -351,7 +417,7 @@ PYTHONPATH=src ./.venv/bin/python -m voicebox_sts_bridge engine-status
 PYTHONPATH=src ./.venv/bin/python -m voicebox_sts_bridge serve
 ```
 
-Open <http://127.0.0.1:8765>. `engine-status` will report the OpenVoice checks as missing unless an isolated OpenVoice environment also exists on this Mac at `.envs/openvoice-v2/bin/python` (conda places the interpreter under `bin/` on macOS and Linux, not directly in the prefix as on Windows — the bridge detects this automatically). Building and validating that environment is covered above under [Complete installation from a fresh clone](#complete-installation-from-a-fresh-clone) (steps 3–5 work unmodified on macOS with the CPU wheel). Installing VoiceBox itself on macOS is not covered by this README — see VoiceBox's own project for its macOS DMG.
+Open <http://127.0.0.1:8765>. `engine-status` will report the OpenVoice checks as missing unless the isolated OpenVoice environment above also exists at `.envs/openvoice-v2/bin/python` (conda places the interpreter under `bin/` on macOS and Linux, not directly in the prefix as on Windows — the bridge detects this automatically). Installing VoiceBox itself on macOS is not covered by this README — see VoiceBox's own project for its macOS DMG (its GitHub releases carry a `Voicebox_<version>_aarch64.dmg` for Apple Silicon and `Voicebox_<version>_x64.dmg` for Intel; the download page at voicebox.sh is a JS-driven redirect rather than a direct file link).
 
 **Compile a standalone binary:**
 
@@ -671,27 +737,36 @@ The long-video implementation prevents cumulative chunk drift by aligning and pa
 - Start VoiceBox and confirm <http://127.0.0.1:17493/health> responds.
 - Confirm no firewall or proxy is intercepting loopback HTTP.
 - Verify `VOICEBOX_BASE_URL` has no credentials, query string, or fragment.
+- **On macOS, if more than one app is registered under the name "Voicebox"** (for example a stray copy left on the Desktop alongside the real install in `/Applications`, or a locally built dev copy), name-based lookup (`open -a Voicebox`) can resolve to the wrong one and launch a copy that opens and exits within a second without ever starting its server — this was observed happening in practice. `build_assets/console_launcher.py`'s bare-invocation launcher avoids this by opening `/Applications/Voicebox.app` by explicit path (override with a full `.app` path via `VOICEBOX_APP`), but if you're launching VoiceBox some other way and it still won't come up, check which copy actually answered on the port:
+
+  ```bash
+  ps aux | grep -i voicebox
+  lsof -nP -iTCP:17493 -sTCP:LISTEN
+  ```
+
+  Also avoid stopping VoiceBox with a plain `kill` on its main process — that orphans its `voicebox-server` child sidecar, which keeps listening on 17493 with a now-dead parent PID and can be mistaken for a healthy instance. Quit it from its own UI, or kill both the parent and the `voicebox-server` children.
 
 ### Engine status says installation incomplete or insecure
 
 Check all of these paths:
 
 ```text
-.envs/openvoice-v2/python.exe
+.envs/openvoice-v2/python.exe        (Windows)
+.envs/openvoice-v2/bin/python        (macOS/Linux)
 third_party/OpenVoice/
 data/models/openvoice-v2/converter/config.json
 data/models/openvoice-v2/converter/checkpoint.pth
 config/openvoice-v2.provenance.json
 ```
 
-Then run:
+Then run (PowerShell shown; on macOS/Linux use `PYTHONPATH=src ./.venv/bin/python -m voicebox_sts_bridge engine-status`):
 
 ```powershell
 $env:PYTHONPATH = "src"
 .\.venv\Scripts\python.exe -m voicebox_sts_bridge engine-status
 ```
 
-If you are running the compiled `VoiceBoxBridge.exe`, this usually means it was moved somewhere other than the repository root (it locates `.envs\` relative to its own folder, with a one-level fallback for `dist\`). Move it back next to `start-bridge.bat`, or set `BRIDGE_PROJECT_ROOT` to the repository's absolute path.
+If you are running a compiled build (`VoiceBoxBridge.exe` on Windows, `dist/VoiceBoxBridge` on macOS), this usually means it was moved somewhere other than the repository root (it locates `.envs/` relative to its own folder, with a one-level fallback for `dist/`). Move it back next to `start-bridge.bat` (Windows) or the repository root (macOS), or set `BRIDGE_PROJECT_ROOT` to the repository's absolute path.
 
 ### CUDA probe fails
 
