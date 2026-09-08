@@ -371,15 +371,23 @@ Open <http://127.0.0.1:8765>. `engine-status` will report the OpenVoice checks a
   build_assets/console_launcher.py
 ```
 
-The entry point is `build_assets/console_launcher.py`, not the package's own `src/voicebox_sts_bridge/__main__.py` — the latter uses a relative import (`from .cli import main`) that fails once PyInstaller runs it as a top-level script instead of as part of the package. `console_launcher.py` is the same idea as Windows's `build_assets/launcher.py`, minus the Windows-only tray/`ctypes` pieces.
+The entry point is `build_assets/console_launcher.py`, not the package's own `src/voicebox_sts_bridge/__main__.py` — the latter uses a relative import (`from .cli import main`) that fails once PyInstaller runs it as a top-level script instead of as part of the package.
 
-Run it from Terminal the same way you would use the CLI:
+Run it from Terminal with no arguments for the everyday launcher experience:
 
 ```bash
-./dist/VoiceBoxBridge serve
+./dist/VoiceBoxBridge
 ```
 
-This mirrors the *console* Windows launcher (a foreground process, `Ctrl+C` to stop) — the no-console/tray build described above is Windows-specific (it relies on `ctypes.windll`, `taskkill`, and Windows message boxes in `build_assets/launcher.py`) and has not been ported to macOS.
+This mirrors `start-bridge.bat`/`launcher.py`'s startup sequence — minus the Windows-only tray icon and `ctypes` message boxes, so it stays a foreground console process (`Ctrl+C` to stop) instead of a windowed/tray app:
+
+- Reuses a compatible bridge that is already running (just opens the browser and exits) instead of starting a second one.
+- Refuses to start, with an error, if port 8765 is owned by something other than this project's own bridge.
+- Replaces a stale bridge process left over from an older build of this same project.
+- If VoiceBox isn't already reachable at `127.0.0.1:17493`, tries to open `/Applications/Voicebox.app` (override with a full `.app` path via `VOICEBOX_APP`; falls back to name-based `open -a Voicebox` only if that path doesn't exist — useful if more than one app is registered under that name, which resolves unpredictably) and waits up to 30 seconds for it to become healthy before continuing anyway.
+- Opens the default browser to `http://127.0.0.1:8765` automatically once the bridge reports ready.
+
+Any explicit subcommand still works the same as the raw CLI, e.g. `./dist/VoiceBoxBridge engine-status` or `./dist/VoiceBoxBridge serve` (the plain `serve` subcommand skips the reuse/VoiceBox/auto-open sequence above and just starts the server directly, same as on the venv's Python).
 
 ## Using the web UI
 
