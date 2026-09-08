@@ -368,8 +368,10 @@ Open <http://127.0.0.1:8765>. `engine-status` will report the OpenVoice checks a
   --add-data "src/voicebox_sts_bridge/openvoice_worker.py:voicebox_sts_bridge" \
   --collect-all uvicorn \
   --hidden-import voicebox_sts_bridge.api \
-  src/voicebox_sts_bridge/__main__.py
+  build_assets/console_launcher.py
 ```
+
+The entry point is `build_assets/console_launcher.py`, not the package's own `src/voicebox_sts_bridge/__main__.py` — the latter uses a relative import (`from .cli import main`) that fails once PyInstaller runs it as a top-level script instead of as part of the package. `console_launcher.py` is the same idea as Windows's `build_assets/launcher.py`, minus the Windows-only tray/`ctypes` pieces.
 
 Run it from Terminal the same way you would use the CLI:
 
