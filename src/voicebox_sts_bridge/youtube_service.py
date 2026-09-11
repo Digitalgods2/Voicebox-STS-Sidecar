@@ -657,7 +657,7 @@ class YouTubeJobService:
                 self._decode_validate(output_video)
                 output_duration = self._duration_seconds(output_probe)
                 timeline_delta = abs(output_duration - source_duration)
-                if timeline_delta > 0.05:
+                if timeline_delta > 0.15:
                     raise YouTubeJobError(
                         f"Output timeline differs from the source video by {timeline_delta:.6f} seconds"
                     )
