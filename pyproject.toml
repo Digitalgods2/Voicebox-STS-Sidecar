@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.0.3,<10"]
+dev = ["pytest>=9.0.3,<10", "httpx>=0.27,<1"]
 
 [project.scripts]
 voicebox-sts-bridge = "voicebox_sts_bridge.cli:main"

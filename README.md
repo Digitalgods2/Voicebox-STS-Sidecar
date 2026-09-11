@@ -9,6 +9,13 @@ The Python package and on-screen application currently use the historical name *
 > [!IMPORTANT]
 > Use only voices and source media that you own or have permission to process. Local-video and YouTube jobs require an explicit rights confirmation. This project does not bypass DRM, account restrictions, or access controls.
 
+## Programmatic speech API
+
+Send speech files, query VoiceBox voices, queue conversions, poll job status, and
+download WAV results through the local HTTP API. See [API guide](docs/api.md)
+and [Python client](examples/speech_client.py). Interactive docs are available
+at `http://127.0.0.1:8765/docs` when the bridge is running.
+
 ## Status
 
 This is a working Windows proof of concept with a production-oriented long-video path. It has been validated on CUDA-capable NVIDIA hardware; host-identifying specifications are intentionally not stored in this repository.

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import mimetypes
+from contextlib import asynccontextmanager
 from pathlib import Path
 import threading
 from typing import Any
+from uuid import UUID
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from . import __version__
+from .audio_jobs import AudioJobs
 from .audio_effects import AudioEffectsError, MAX_BRIGHTNESS_DB, MAX_PITCH_SEMITONES
 from .conversion_service import ConversionService
 from .logging_setup import tail_log
@@ -49,6 +52,13 @@ class YouTubeJobRequest(BaseModel):
     authorized: bool = False
 
 
+class AudioJobRequest(ConversionRequest):
+    input_id: UUID
+    profile_id: UUID
+    sample_id: UUID | None = None
+    authorized: bool = False
+
+
 class LocalVideoJobRequest(BaseModel):
     video_input_id: str
     profile_id: str
@@ -63,7 +73,12 @@ class LocalVideoJobRequest(BaseModel):
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
-    app = FastAPI(title="VoiceBox STS Bridge", version=__version__)
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        audio_jobs.recover_interrupted()
+        yield
+
+    app = FastAPI(title="VoiceBox STS Bridge", version=__version__, lifespan=lifespan)
     client = VoiceBoxClient(
         settings.voicebox_base_url,
         timeout_seconds=settings.request_timeout_seconds,
@@ -84,6 +99,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conversion_lock=conversion_lock,
     )
     media = MediaStore(settings.data_dir)
+    audio_jobs = AudioJobs(settings.data_dir, conversions)
 
     def call(operation: Any) -> Any:
         try:
@@ -126,6 +142,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return call(client.health)
 
     @app.get("/api/profiles")
+    @app.get("/api/voices", tags=["Speech API"], summary="List VoiceBox voice profiles")
     def profiles() -> list[dict[str, Any]]:
         return call(client.profiles)
 
@@ -142,8 +159,98 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return engine_call(engine.probe)
 
     @app.get("/api/profiles/{profile_id}/samples")
+    @app.get("/api/voices/{profile_id}/samples", tags=["Speech API"])
     def samples(profile_id: str) -> list[dict[str, Any]]:
         return call(lambda: client.samples(profile_id))
+
+    @app.get("/api/voices/{profile_id}", tags=["Speech API"])
+    def voice(profile_id: str) -> dict[str, Any]:
+        return call(lambda: client.profile(profile_id))
+
+    def select_sample(profile_id: str, sample_id: str | None) -> str:
+        available = call(lambda: client.samples(profile_id))
+        if not available:
+            raise HTTPException(422, "This voice has no reference samples; choose a cloned voice.")
+        if sample_id is None:
+            if len(available) != 1:
+                raise HTTPException(422, "This voice has multiple samples; provide sample_id.")
+            return str(available[0]["id"])
+        if not any(item.get("id") == sample_id for item in available):
+            raise HTTPException(422, "sample_id does not belong to this voice.")
+        return sample_id
+
+    def enqueue_audio(options: AudioJobRequest, tasks: BackgroundTasks, response: Response) -> dict[str, Any]:
+        if not options.authorized:
+            raise HTTPException(422, "Set authorized=true to confirm permission to use the media and voice.")
+        try:
+            media.resolve_input(str(options.input_id))
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "Uploaded audio not found.") from exc
+        values = options.model_dump(mode="json")
+        values["sample_id"] = select_sample(values["profile_id"], values["sample_id"])
+        job = audio_jobs.create(values)
+        tasks.add_task(audio_jobs.run, job["job_id"], media)
+        response.headers["Location"] = job["status_url"]
+        response.headers["Retry-After"] = "2"
+        return job
+
+    @app.post("/api/audio/jobs", status_code=202, tags=["Speech API"])
+    def create_audio_job(options: AudioJobRequest, background_tasks: BackgroundTasks,
+                         response: Response) -> dict[str, Any]:
+        """Convert an existing upload in the background. Poll status_url for completion."""
+        return enqueue_audio(options, background_tasks, response)
+
+    @app.post("/api/speech", status_code=202, tags=["Speech API"], openapi_extra={
+        "requestBody": {"required": True, "content": {
+            "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+        }}
+    })
+    async def speech(request: Request, background_tasks: BackgroundTasks, response: Response,
+                     profile_id: UUID, filename: str = Query(min_length=1, max_length=255),
+                     sample_id: UUID | None = None, authorized: bool = False,
+                     tau: float = Query(default=0.3, ge=0, le=1),
+                     pitch_semitones: float = Query(default=0, ge=-MAX_PITCH_SEMITONES, le=MAX_PITCH_SEMITONES),
+                     brightness_db: float = Query(default=0, ge=-MAX_BRIGHTNESS_DB, le=MAX_BRIGHTNESS_DB)) -> dict[str, Any]:
+        """Upload raw audio bytes and queue conversion; this is not a multipart form."""
+        if not authorized:
+            raise HTTPException(422, "Set authorized=true to confirm permission to use the media and voice.")
+        # VoiceBox I/O is blocking, so run sample discovery off the event loop.
+        from starlette.concurrency import run_in_threadpool
+
+        selected = await run_in_threadpool(select_sample, str(profile_id), str(sample_id) if sample_id else None)
+        upload = await upload_input(request, filename)
+        values = AudioJobRequest(input_id=upload["input_id"], profile_id=profile_id,
+                                 sample_id=selected, authorized=True, tau=tau,
+                                 pitch_semitones=pitch_semitones, brightness_db=brightness_db)
+        job = audio_jobs.create(values.model_dump(mode="json"))
+        background_tasks.add_task(audio_jobs.run, job["job_id"], media)
+        response.headers["Location"] = job["status_url"]
+        response.headers["Retry-After"] = "2"
+        return job
+
+    @app.get("/api/audio/jobs", tags=["Speech API"])
+    def list_audio_jobs(limit: int = Query(default=50, ge=1, le=200),
+                        offset: int = Query(default=0, ge=0)) -> dict[str, Any]:
+        return {"items": audio_jobs.list(limit, offset), "limit": limit, "offset": offset}
+
+    @app.get("/api/audio/jobs/{job_id}", tags=["Speech API"])
+    def audio_job(job_id: UUID) -> dict[str, Any]:
+        try:
+            return audio_jobs.get(str(job_id))
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "Audio job not found.") from exc
+
+    @app.get("/api/audio/jobs/{job_id}/audio", response_class=FileResponse, tags=["Speech API"])
+    def download_audio(job_id: UUID) -> FileResponse:
+        job = audio_job(job_id)
+        if job["status"] != "completed":
+            raise HTTPException(409, f"Audio is unavailable: job is {job['status']}.")
+        try:
+            path = media.resolve_output(job["conversion_id"])
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "Output audio no longer exists.") from exc
+        return FileResponse(path, media_type="audio/wav", filename=f"{job_id}.wav",
+                            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
     @app.post("/api/references")
     def fetch_reference(request: ReferenceRequest) -> dict[str, Any]:
